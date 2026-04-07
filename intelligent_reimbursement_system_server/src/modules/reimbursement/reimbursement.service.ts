@@ -158,8 +158,8 @@ export class ReimbursementService {
     if (!isAdmin && String(record.applicant) !== String(userId)) {
       throw new ForbiddenException('只能撤回自己的报销单');
     }
-    if (record.status !== 'pending') {
-      throw new BadRequestException('只能撤回待审批状态的报销单');
+    if (!['pending', 'approved', 'rejected'].includes(record.status)) {
+      throw new BadRequestException('已撤回的报销单无法再次撤回');
     }
 
     await this.reimbursementModel.findByIdAndUpdate(id, {
