@@ -1,5 +1,6 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { json, urlencoded } from 'express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/response.interceptor';
@@ -12,8 +13,8 @@ async function bootstrap() {
   });
 
   // 请求体大小限制 20MB（用于 AI 接口传输 base64 文件）
-  app.use(require('express').json({ limit: '20mb' }));
-  app.use(require('express').urlencoded({ limit: '20mb', extended: true }));
+  app.use(json({ limit: '20mb' }));
+  app.use(urlencoded({ limit: '20mb', extended: true }));
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN || '*',
