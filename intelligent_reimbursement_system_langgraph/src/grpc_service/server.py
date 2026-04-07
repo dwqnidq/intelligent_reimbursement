@@ -67,8 +67,10 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
         try:
             logger.info("收到流式请求: %s", request.input)
             files = list(request.files) if hasattr(request, 'files') and request.files else []
+            config = dict(request.config) if hasattr(request, 'config') and request.config else {}
+            is_admin = config.get('is_admin', 'false').lower() == 'true'
 
-            for chunk in stream_graph(request.input, files):
+            for chunk in stream_graph(request.input, files, is_admin=is_admin):
                 yield graph_service_pb2.GraphStreamResponse(
                     node=chunk.get("node", ""),
                     token=chunk.get("token", ""),

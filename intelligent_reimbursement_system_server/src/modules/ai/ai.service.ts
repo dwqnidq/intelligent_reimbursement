@@ -8,12 +8,17 @@ export class AiService {
 
   constructor(private readonly grpcClient: GrpcClientService) {}
 
-  chatStream(input: string, files?: string[]): Observable<MessageEvent> {
+  chatStream(
+    input: string,
+    files?: string[],
+    isAdmin = false,
+  ): Observable<MessageEvent> {
     return new Observable((subscriber) => {
       console.log(input, files);
       const grpcStream = this.grpcClient.streamExecuteGraph({
         input,
         files: files || [],
+        config: { is_admin: isAdmin ? 'true' : 'false' },
       });
 
       grpcStream.subscribe({

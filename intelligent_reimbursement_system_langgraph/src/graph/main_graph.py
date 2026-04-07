@@ -33,6 +33,7 @@ class GraphState(TypedDict, total=False):
     node: str
     result: Any
     files: List[str]
+    is_admin: bool
 
 
 # ─────────────────────────────────────────────
@@ -85,6 +86,11 @@ def generate_reimbursement_type_config(user_requirement: str) -> str:
 
 
 def reimbursement_type_node(state: GraphState) -> GraphState:
+    # 权限校验：非管理员直接返回，不调用模型
+    if not state.get("is_admin", False):
+        print(f"[报销类型节点] 非管理员，拒绝访问")
+        return {**state, "node": "reimbursement_type", "result": {"error": "permission_denied", "message": "抱歉，您没有权限使用报销类型配置功能，该功能仅限管理员使用。"}, "step_count": state.get("step_count", 0) + 1}
+
     print(f"[报销类型节点] 启动 Agent...")
     tools = [generate_reimbursement_type_config]
     agent = create_react_agent(llm, tools)
@@ -274,6 +280,12 @@ def route_intent(state: GraphState) -> GraphState:
         ])
         intent = response.content.strip().lower()
         intent = "reimbursement_type" if "reimbursement_type" in intent else "chat"
+
+        # 权限校验：报销类型节点仅管理员可用
+        if intent == "reimbursement_type" and not state.get("is_admin", False):
+            print(f"[路由节点] 非管理员，拒绝进入报销类型节点")
+            intent = "no_permission"
+
         print(f"[路由节点] 识别意图: {intent}")
     except Exception as e:
         print(f"[路由节点] 错误: {str(e)}")
@@ -288,6 +300,8 @@ def route_by_intent(state: GraphState) -> str:
         return "reimbursement_type"
     elif intent == "invoice_recognition":
         return "invoice_recognition"
+    elif intent == "no_permission":
+        return "no_permission"
     return "chat"
 
 
@@ -305,7 +319,7 @@ def generate_output(state: GraphState) -> GraphState:
 # 流式执行入口
 # ─────────────────────────────────────────────
 
-def stream_graph(input_text: str, files: List[str] = None) -> Generator:
+def stream_graph(input_text: str, files: List[str] = None, is_admin: bool = False) -> Generator:
     """
     流式执行图，逐步 yield token。
     对于 chat 节点：流式输出 token
@@ -320,11 +334,22 @@ def stream_graph(input_text: str, files: List[str] = None) -> Generator:
         "intent": "",
         "node": "",
         "result": None,
+        "is_admin": is_admin,
     }
 
     # 先执行路由，确定意图
     route_state = route_intent(initial_state)
     intent = route_state.get("intent", "chat")
+
+    if intent == "no_permission":
+        yield {
+            "node": "chat",
+            "token": "",
+            "output": json.dumps({"node": "chat", "result": "抱歉，您没有权限使用报销类型配置功能，该功能仅限管理员使用。"}, ensure_ascii=False),
+            "is_final": True,
+            "success": True,
+        }
+        return
 
     if intent == "chat":
         yield {"node": "chat", "token": "", "is_final": False}
