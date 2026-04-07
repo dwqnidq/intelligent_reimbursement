@@ -18,3 +18,6 @@ langchain-openai>=0.0.5
 
 # JSON 容错修复（处理 LLM 输出截断）
 json-repair>=0.30.0
+
+# PDF 解析
+pymupdf>=1.24.0

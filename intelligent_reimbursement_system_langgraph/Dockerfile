@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装系统依赖（pymupdf 需要）
+# 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmupdf-dev \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖文件，利用 Docker 层缓存
