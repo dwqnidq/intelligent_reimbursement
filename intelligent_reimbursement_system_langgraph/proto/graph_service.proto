@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package graph_service;
+
+// LangGraph 服务定义
+service GraphService {
+  // 执行图的主要方法
+  rpc ExecuteGraph(GraphRequest) returns (GraphResponse);
+  
+  // 流式执行图
+  rpc StreamExecuteGraph(GraphRequest) returns (stream GraphStreamResponse);
+}
+
+// 请求消息
+message GraphRequest {
+  string input = 1;
+  map<string, string> config = 2;
+  repeated string files = 3;  // 文件路径列表（用于发票识别）
+}
+
+// 响应消息
+message GraphResponse {
+  string output = 1;
+  bool success = 2;
+  string error = 3;
+  map<string, string> metadata = 4;
+}
+
+// 流式响应消息
+message GraphStreamResponse {
+  string node = 1;       // 节点名称
+  string token = 2;      // 流式 token 片段
+  string output = 3;     // 最终完整输出（is_final=true 时有值）
+  bool is_final = 4;     // 是否是最后一条
+  bool success = 5;
+  string error = 6;
+}
