@@ -9,6 +9,7 @@ import AuthGuard from "./router/AuthGuard";
 import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import OpinionPage from "./pages/OpinionPage";
 import AIAssistant from "./components/AIAssistant";
 import { componentMap } from "./router/componentMap";
 import type { MenuItem } from "./api/user";
@@ -36,6 +37,15 @@ function IndexRedirect() {
   return <Navigate to={firstPath} replace />;
 }
 
+function AIAssistantGuard() {
+  const { token, permissions } = useAuthStore();
+  // 未登录不显示
+  if (!token) return null;
+  // 无任何权限（普通用户）不显示
+  if (!permissions || permissions.length === 0) return null;
+  return <AIAssistant />;
+}
+
 export default function App() {
   const menus = useAuthStore((s) => s.menus);
   const allMenus = flatMenus(menus);
@@ -55,6 +65,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/opinion" element={<OpinionPage />} />
             <Route
               path="/"
               element={
@@ -67,7 +78,7 @@ export default function App() {
               {dynamicRoutes}
             </Route>
           </Routes>
-          <AIAssistant />
+          <AIAssistantGuard />
         </BrowserRouter>
       </UserProvider>
     </ConfigProvider>
