@@ -1,0 +1,57 @@
+services:
+  # ─── MongoDB ───
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    expose:
+      - "27017"
+    networks:
+      - app-network
+
+  # ─── LangGraph gRPC 服务 ───
+  langgraph:
+    build:
+      context: ./intelligent_reimbursement_system_langgraph
+    container_name: langgraph
+    restart: unless-stopped
+    env_file:
+      - ./intelligent_reimbursement_system_langgraph/.env
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 50051
+    expose:
+      - "50051"
+    networks:
+      - app-network
+
+  # ─── NestJS 后端（含前端静态文件） ───
+  server:
+    build:
+      context: . # 根目录为构建上下文
+      dockerfile: intelligent_reimbursement_system_server/Dockerfile
+    container_name: server
+    restart: unless-stopped
+    env_file:
+      - ./intelligent_reimbursement_system_server/.env
+    environment:
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/Reimbursement
+      GRPC_HOST: langgraph
+      GRPC_PORT: 50051
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongo
+      - langgraph
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongo_data:
