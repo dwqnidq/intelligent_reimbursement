@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package graph_service;
+
+// LangGraph 服务定义
+service GraphService {
+  // 执行图的主要方法
+  rpc ExecuteGraph(GraphRequest) returns (GraphResponse);
+  
+  // 流式执行图
+  rpc StreamExecuteGraph(GraphRequest) returns (stream GraphStreamResponse);
+}
+
+// 请求消息
+message GraphRequest {
+  string input = 1;
+  map<string, string> config = 2;
+}
+
+// 响应消息
+message GraphResponse {
+  string output = 1;
+  bool success = 2;
+  string error = 3;
+  map<string, string> metadata = 4;
+}
+
+// 流式响应消息
+message GraphStreamResponse {
+  string node_name = 1;
+  string output = 2;
+  bool is_final = 3;
+}
