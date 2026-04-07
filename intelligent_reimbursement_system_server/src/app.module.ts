@@ -9,6 +9,7 @@ import { ReimbursementTypeModule } from './modules/reimbursement-type/reimbursem
 import { FileModule } from './modules/file/file.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AiModule } from './modules/ai/ai.module';
+import { OpinionModule } from './modules/opinion/opinion.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { AiModule } from './modules/ai/ai.module';
     ReimbursementTypeModule,
     FileModule,
     AiModule,
+    OpinionModule,
   ],
 })
 export class AppModule {}
