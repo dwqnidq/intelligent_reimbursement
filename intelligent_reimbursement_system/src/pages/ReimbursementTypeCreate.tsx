@@ -491,6 +491,7 @@ export default function ReimbursementTypeCreate() {
     label: string;
     remark?: string;
     formula?: string;
+    over_limit_threshold?: number;
     enabled: boolean;
   }) => {
     if (typeList.find((t) => t.code === values.code)) {
@@ -511,6 +512,7 @@ export default function ReimbursementTypeCreate() {
         label: values.label,
         remark: values.remark,
         formula: values.formula || undefined,
+        over_limit_threshold: values.over_limit_threshold ?? undefined,
         status: values.enabled ? 1 : 0,
         fields: fields.map(({ _rowKey, ...rest }) => rest),
         export_fields: exportFields.map(({ _rowKey, ...rest }) => rest),
@@ -921,6 +923,19 @@ export default function ReimbursementTypeCreate() {
               tooltip="用于计算总价，变量名对应字段标识符中参与计算的字段，如 unitPrice * quantity"
             >
               <Input placeholder="如 unitPrice * quantity" />
+            </Form.Item>
+            <Form.Item
+              label="上限金额"
+              name="over_limit_threshold"
+              tooltip="报销金额超过此上限时将进行提示"
+            >
+              <InputNumber
+                className="w-full"
+                min={0}
+                precision={2}
+                placeholder="请输入上限金额"
+                addonAfter="元"
+              />
             </Form.Item>
             <Form.Item label="状态" name="enabled" valuePropName="checked">
               <Switch checkedChildren="启用" unCheckedChildren="禁用" />
