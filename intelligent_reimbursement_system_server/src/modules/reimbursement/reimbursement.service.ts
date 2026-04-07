@@ -158,14 +158,19 @@ export class ReimbursementService {
     if (!isAdmin && String(record.applicant) !== String(userId)) {
       throw new ForbiddenException('只能撤回自己的报销单');
     }
-    if (!['pending', 'approved', 'rejected'].includes(record.status)) {
-      throw new BadRequestException('已撤回的报销单无法再次撤回');
+    if (record.status === 'pending') {
+      throw new BadRequestException('报销单已是待审批状态，无需撤回');
     }
 
     await this.reimbursementModel.findByIdAndUpdate(id, {
-      $set: { status: 'withdrawn' },
+      $set: {
+        status: 'pending',
+        approver: null,
+        approved_at: null,
+        reject_reason: null,
+      },
     });
-    return { id, status: 'withdrawn' };
+    return { id, status: 'pending' };
   }
 
   async getList(userId: string, query: SearchReimbursementDto) {
