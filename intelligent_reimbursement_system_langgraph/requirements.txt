@@ -1,0 +1,20 @@
+# LangGraph 和 LangChain
+langgraph>=0.2.0
+langchain-core>=0.1.0
+langchain>=0.1.0
+
+# gRPC
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+
+# Protocol Buffers
+protobuf>=4.25.0,<5.0.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
+
+# OpenAI 兼容接口（豆包支持 OpenAI 格式）
+langchain-openai>=0.0.5
+
+# JSON 容错修复（处理 LLM 输出截断）
+json-repair>=0.30.0
