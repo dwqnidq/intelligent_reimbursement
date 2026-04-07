@@ -1,240 +1,187 @@
-# LangGraph gRPC 服务
+# 智能报销系统 - AI 服务（LangGraph）
 
-使用 Python + LangGraph + gRPC + 豆包大模型构建的智能图执行服务。
+基于 LangGraph + 豆包大模型构建的 AI 推理服务，通过 gRPC 对外提供流式响应能力，支持发票识别、报销类型配置生成、报销政策问答三类意图。
 
-## 快速开始
+## 技术栈
 
-### 1. 安装依赖
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置环境变量
-```bash
-# 复制环境变量模板
-cp .env.example .env
-
-# 编辑 .env 文件，填入你的豆包 API 密钥
-# ARK_API_KEY=your_actual_api_key_here
-```
-
-获取豆包 API 密钥：访问 [火山引擎控制台](https://console.volcengine.com/ark)
-
-### 3. 生成 gRPC 代码
-```bash
-# Windows
-scripts\generate_proto.bat
-
-# Linux/Mac
-./scripts/generate_proto.sh
-```
-
-### 4. 检查配置
-```bash
-python check_config.py
-```
-
-### 5. 启动服务器
-```bash
-python main.py
-```
-
-### 6. 测试客户端（新开终端）
-```bash
-python client.py
-```
-
-## 使用方式
-
-### 启动服务器
-```bash
-# 默认配置（端口 50051）
-python main.py
-
-# 自定义端口
-python main.py --port 8080
-
-# 查看帮助
-python main.py --help
-```
-
-### 测试客户端
-```bash
-# 运行所有测试（同步 + 流式）
-python client.py
-
-# 只测试同步调用
-python client.py --mode sync
-
-# 自定义输入
-python client.py --input "你好，这是测试数据"
-
-# 查看帮助
-python client.py --help
-```
-
-### Windows 用户
-双击运行批处理文件：
-- `start_server.bat` - 启动服务器
-- `test_client.bat` - 测试客户端
+| 技术             | 版本   | 用途                   |
+| ---------------- | ------ | ---------------------- |
+| Python           | 3.11   | 运行环境               |
+| LangGraph        | ≥0.2   | AI 工作流编排          |
+| LangChain        | ≥0.1   | LLM 调用封装           |
+| langchain-openai | ≥0.0.5 | 豆包 OpenAI 兼容接口   |
+| gRPC / grpcio    | ≥1.60  | 服务通信协议           |
+| PyMuPDF          | -      | PDF 文件解析           |
+| json-repair      | ≥0.30  | LLM 输出 JSON 容错修复 |
+| python-dotenv    | ≥1.0   | 环境变量管理           |
 
 ## 项目结构
 
 ```
-intelligent_reimbursement_system_langgraph/
-├── .env                       # 环境变量配置（需手动创建）
-├── .env.example              # 环境变量模板
-├── config.py                 # 配置管理（从 .env 读取）
-├── main.py                   # 服务器主入口 ⭐
-├── client.py                 # 客户端主入口 ⭐
-├── check_config.py           # 配置检查脚本
-├── test_doubao.py            # 豆包模型测试
-├── requirements.txt          # Python 依赖
-├── start_server.bat          # Windows 启动脚本
-├── test_client.bat           # Windows 测试脚本
+├── main.py                    # 服务入口，启动 gRPC server
+├── config.py                  # 环境变量读取与配置
 ├── proto/
-│   └── graph_service.proto  # gRPC 服务定义
-├── scripts/
-│   ├── generate_proto.bat   # Windows 代码生成
-│   └── generate_proto.sh    # Linux/Mac 代码生成
-└── src/
-    ├── graph/
-    │   └── main_graph.py    # LangGraph 主图（使用 LangChain）⭐
-    ├── grpc_service/
-    │   ├── server.py        # gRPC 服务器
-    │   └── client.py        # gRPC 客户端
-    └── generated/           # gRPC 生成代码
+│   └── graph_service.proto    # gRPC 接口定义
+├── src/
+│   ├── generated/             # protoc 自动生成的 pb2 文件（构建时生成）
+│   ├── grpc_service/
+│   │   ├── server.py          # gRPC 服务端，注册 Servicer
+│   │   └── client.py          # gRPC 客户端（本地测试用）
+│   └── graph/
+│       └── main_graph.py      # LangGraph 核心图定义
+├── tests/
+│   ├── test_doubao.py         # 豆包 LLM 连通性测试
+│   └── check_config.py        # 环境配置检查
+└── scripts/
+    ├── generate_proto.sh/.bat # 生成 gRPC 代码脚本
+    └── quick_start.sh/.bat    # 快速启动脚本
 ```
 
-## 环境变量配置
+## Graph 工作流
 
-编辑 `.env` 文件：
+```
+用户输入（文本 + 可选文件）
+        │
+        ▼
+  route_intent 节点
+  （意图分类：chat / invoice / type_config）
+        │
+   ┌────┴────────────┐
+   │                 │                 │
+   ▼                 ▼                 ▼
+chat_node    invoice_recognition   reimbursement_type
+（政策问答）   _node（发票识别）      _node（类型配置生成）
+   │                 │                 │
+   └────────┬────────┘
+            ▼
+     generate_output 节点
+     （格式化 + 流式输出）
+```
+
+### 节点说明
+
+#### `route_intent`
+
+调用 LLM 对用户输入进行意图分类，输出三种意图之一：
+
+- `chat` — 报销政策咨询
+- `invoice` — 发票识别（需要附件）
+- `type_config` — 报销类型配置生成
+
+#### `invoice_recognition_node`
+
+- 接收 base64 编码的文件列表（图片或 PDF）
+- 逐个调用 LLM 进行结构化识别，提取：发票类型、金额、日期、商家、税号等字段
+- 使用 `json-repair` 容错处理 LLM 输出截断问题
+- 返回 `InvoiceResultList` 结构化结果
+
+#### `reimbursement_type_node`
+
+- 根据用户的自然语言需求描述
+- 调用 LLM 生成标准化的报销类型字段配置（JSON Schema 格式）
+- 字段包含：name、label、type（text/number/date/select）、required、options
+
+#### `chat_node`
+
+- 基于报销政策知识库回答用户问题
+- 支持多轮对话上下文
+
+#### `generate_output`
+
+- 统一格式化各节点输出
+- 通过 gRPC 流式推送给调用方
+
+## gRPC 接口
+
+Proto 定义（`proto/graph_service.proto`）：
+
+```protobuf
+service GraphService {
+  rpc StreamGraph(GraphRequest) returns (stream GraphResponse);
+}
+
+message GraphRequest {
+  string input_text = 1;
+  repeated string files = 2;  // base64 编码的文件列表
+}
+
+message GraphResponse {
+  string content = 1;         // 流式文本片段
+  bool is_final = 2;          // 是否为最后一帧
+  string error = 3;           // 错误信息（可选）
+}
+```
+
+## 本地开发
+
+### 环境准备
 
 ```bash
-# 豆包大模型配置（必填）
-# 注意：DOUBAO_MODEL 应该填写你的 endpoint ID，不是模型名称
-ARK_API_KEY=your_actual_api_key_here
-DOUBAO_MODEL=ep-20241230185503-xxxxx  # 你的 endpoint ID
+# 创建虚拟环境
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# API 地址（通常不需要修改）
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 生成 gRPC 代码
+
+```bash
+# Linux/macOS
+bash scripts/generate_proto.sh
+
+# Windows
+scripts\generate_proto.bat
+```
+
+### 启动服务
+
+```bash
+python main.py
+# 或指定端口
+python main.py --host 0.0.0.0 --port 50051
+```
+
+### 测试
+
+```bash
+# 检查环境配置
+python tests/check_config.py
+
+# 测试豆包 LLM 连通性
+python tests/test_doubao.py
+
+# 使用 gRPC 客户端测试
+python client.py
+```
+
+## 环境变量
+
+复制 `.env.example` 为 `.env`：
+
+```env
+# 豆包大模型（OpenAI 兼容格式）
+ARK_API_KEY=your_ark_api_key
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+DOUBAO_MODEL=ep-xxxxxxxx
 
-# 服务器配置（可选）
+# gRPC 服务配置
 SERVER_HOST=0.0.0.0
 SERVER_PORT=50051
 MAX_WORKERS=10
 
-# 日志配置（可选）
+# 日志
 LOG_LEVEL=INFO
 ```
 
-**重要说明：**
-- 豆包使用 OpenAI 兼容的 API 格式
-- `DOUBAO_MODEL` 应填写你的 **endpoint ID**（如：`ep-20241230185503-xxxxx`）
-- 获取方式：登录火山引擎控制台 → 模型推理 → 在线推理 → 创建推理接口 → 复制 endpoint ID
+## 生产部署
 
-## 功能特性
+Dockerfile 会在构建时自动执行 `protoc` 生成 gRPC 代码，无需手动操作：
 
-- ✅ LangGraph 状态图工作流
-- ✅ 使用 LangChain 标准方式集成豆包大模型
-- ✅ 支持 OpenAI 兼容的 API 格式
-- ✅ gRPC 同步和流式调用
-- ✅ 环境变量管理 (python-dotenv)
-- ✅ 一键启动和测试
-- ✅ 完整的配置检查工具
-
-## 工具脚本
-
-| 脚本 | 功能 |
-|------|------|
-| `check_config.py` | 检查项目配置是否正确 |
-| `test_doubao.py` | 测试豆包模型连接 |
-| `scripts/generate_proto.bat` | 生成 gRPC 代码（Windows） |
-| `scripts/generate_proto.sh` | 生成 gRPC 代码（Linux/Mac） |
-
-## 常见问题
-
-### Q1: 提示 "ARK_API_KEY 未设置"
-确保：
-1. `.env` 文件存在
-2. `.env` 文件中 `ARK_API_KEY` 已填写真实的 API Key
-3. API Key 不是默认值 `your_ark_api_key_here`
-
-### Q2: 提示 "No module named 'graph_service_pb2'"
-需要生成 gRPC 代码：
 ```bash
-python -m grpc_tools.protoc -I./proto --python_out=./src/generated --grpc_python_out=./src/generated ./proto/graph_service.proto
+docker build -t langgraph .
+docker run -p 50051:50051 --env-file .env langgraph
 ```
 
-### Q3: 端口被占用
-修改 `.env` 文件中的 `SERVER_PORT`，或启动时指定：
-```bash
-python main.py --port 8080
-```
-
-## 扩展开发
-
-### 自定义 LangGraph 工作流
-编辑 `src/graph/main_graph.py`，添加更多节点：
-```python
-workflow.add_node("your_node", your_function)
-workflow.add_edge("process_input", "your_node")
-```
-
-### 使用 LangChain 调用大模型
-项目直接使用 LangChain 标准写法，无需额外封装：
-
-```python
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from config import ARK_API_KEY, ARK_BASE_URL, DOUBAO_MODEL
-
-# 创建 LLM 实例
-llm = ChatOpenAI(
-    model=DOUBAO_MODEL,
-    openai_api_key=ARK_API_KEY,
-    openai_api_base=ARK_BASE_URL,
-    temperature=0.7,
-    max_tokens=2000
-)
-
-# 调用模型
-messages = [
-    SystemMessage(content="你是一个助手"),
-    HumanMessage(content="你好")
-]
-response = llm.invoke(messages)
-print(response.content)
-```
-
-### 使用 LangChain LCEL
-```python
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
-llm = ChatOpenAI(...)
-prompt = ChatPromptTemplate.from_template("告诉我关于{topic}的信息")
-chain = prompt | llm | StrOutputParser()
-
-result = chain.invoke({"topic": "人工智能"})
-```
-
-### 扩展 gRPC 接口
-编辑 `proto/graph_service.proto`，添加新的服务方法：
-```protobuf
-service GraphService {
-  rpc YourMethod(YourRequest) returns (YourResponse);
-}
-```
-
-## 技术栈
-
-- **LangGraph**: 状态图工作流引擎
-- **LangChain**: LLM 应用开发框架
-- **gRPC**: 高性能 RPC 框架
-- **豆包大模型**: 火山引擎大模型（通过 OpenAI 兼容接口）
-- **Python-dotenv**: 环境变量管理
-
-## License
-
-MIT
+> 注意：该服务仅在 Docker 内网暴露 50051 端口，不对外开放，只由后端服务通过 gRPC 调用。

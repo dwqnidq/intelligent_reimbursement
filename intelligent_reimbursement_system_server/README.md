@@ -1,217 +1,182 @@
 # 智能报销系统 - 后端服务
 
-基于 NestJS + TypeScript + MongoDB 构建的智能报销系统后端，提供用户管理、报销单管理、报销类型管理、文件上传等 RESTful API，集成 JWT 鉴权、Swagger 文档、七牛云存储及 gRPC 客户端。
+基于 NestJS 11 + MongoDB + gRPC 构建的后端服务，提供 RESTful API、JWT 鉴权、文件上传、AI 流式对话等能力，同时托管前端静态文件。
 
 ## 技术栈
 
-- 框架：NestJS 11
-- 语言：TypeScript
-- 数据库：MongoDB（Mongoose ODM）
-- 鉴权：JWT（Passport）
-- 文件存储：七牛云
-- 接口文档：Swagger
-- gRPC：@grpc/grpc-js + @grpc/proto-loader
-- 校验：class-validator + class-transformer
+| 技术               | 版本 | 用途           |
+| ------------------ | ---- | -------------- |
+| NestJS             | 11   | 后端框架       |
+| TypeScript         | 5.7  | 类型安全       |
+| MongoDB + Mongoose | 9    | 数据库         |
+| JWT + Passport     | -    | 身份认证       |
+| gRPC               | 1.14 | 与 AI 服务通信 |
+| Qiniu SDK          | 7    | 文件云存储     |
+| Swagger            | 11   | API 文档       |
+| pnpm               | 10   | 包管理器       |
 
 ## 项目结构
 
 ```
 src/
-├── main.ts                              # 应用入口
-├── app.module.ts                        # 根模块
-├── schemas/                             # Mongoose Schema 定义
-│   ├── user.schema.ts                   # 用户
-│   ├── role.schema.ts                   # 角色
-│   ├── permission.schema.ts             # 权限
-│   ├── menu.schema.ts                   # 菜单
-│   ├── reimbursement.schema.ts          # 报销单
-│   ├── reimbursement-type.schema.ts     # 报销类型
-│   ├── file.schema.ts                   # 文件
-│   └── approval-log.schema.ts           # 审批日志
-└── modules/
-    ├── auth/                            # 鉴权模块
-    │   ├── auth.module.ts
-    │   ├── jwt.strategy.ts              # JWT 策略
-    │   ├── jwt-auth.guard.ts            # JWT 守卫
-    │   └── current-user.decorator.ts    # 当前用户装饰器
-    ├── user/                            # 用户模块
-    │   ├── user.module.ts
-    │   ├── user.controller.ts
-    │   ├── user.service.ts
-    │   └── dto/
-    ├── reimbursement/                   # 报销单模块
-    │   ├── reimbursement.module.ts
-    │   ├── reimbursement.controller.ts
-    │   ├── reimbursement.service.ts
-    │   └── dto/
-    ├── reimbursement-type/              # 报销类型模块
-    │   ├── reimbursement-type.module.ts
-    │   ├── reimbursement-type.controller.ts
-    │   ├── reimbursement-type.service.ts
-    │   └── dto/
-    └── file/                            # 文件上传模块
-        ├── file.module.ts
-        ├── file.controller.ts
-        └── file.service.ts
-proto/
-└── graph_service.proto                  # gRPC 服务定义（LangGraph）
+├── common/
+│   ├── http-exception.filter.ts  # 全局异常过滤器
+│   ├── response.interceptor.ts   # 全局响应格式化拦截器
+│   └── public.decorator.ts       # @Public() 跳过 JWT 验证装饰器
+├── modules/
+│   ├── auth/
+│   │   ├── auth.module.ts
+│   │   ├── jwt.strategy.ts       # JWT 验证策略
+│   │   ├── jwt-auth.guard.ts     # 全局 JWT 守卫
+│   │   └── current-user.decorator.ts # @CurrentUser() 装饰器
+│   ├── user/
+│   │   ├── dto/                  # RegisterDto, LoginDto, ChangePasswordDto
+│   │   ├── user.service.ts       # 注册、登录、查询、改密
+│   │   └── user.controller.ts
+│   ├── reimbursement/
+│   │   ├── dto/                  # CreateDto, ApproveDto, SearchDto
+│   │   ├── reimbursement.service.ts
+│   │   └── reimbursement.controller.ts
+│   ├── reimbursement-type/
+│   │   ├── dto/
+│   │   ├── reimbursement-type.service.ts
+│   │   └── reimbursement-type.controller.ts
+│   ├── file/
+│   │   ├── file.service.ts       # 七牛云上传
+│   │   └── file.controller.ts
+│   └── ai/
+│       ├── grpc-client.service.ts # gRPC 连接 LangGraph
+│       ├── ai.service.ts
+│       └── ai.controller.ts      # SSE 流式响应
+└── schemas/
+    ├── user.schema.ts
+    ├── reimbursement.schema.ts
+    ├── reimbursement-type.schema.ts
+    ├── file.schema.ts
+    ├── role.schema.ts
+    ├── permission.schema.ts
+    ├── menu.schema.ts
+    └── approval-log.schema.ts
 ```
 
-## 快速开始
+## API 接口
 
-### 环境要求
+> 所有接口统一前缀 `/api`，需要鉴权的接口在请求头携带 `Authorization: Bearer <token>`。
+> 完整文档访问 `http://localhost:3000/api-docs`（Swagger UI）。
 
-- Node.js >= 18
-- MongoDB >= 6.0
-- npm >= 9
+### 用户模块 `/api/v1/users`
 
-### 安装与启动
+| 方法  | 路径        | 说明                 | 鉴权 |
+| ----- | ----------- | -------------------- | ---- |
+| POST  | `/register` | 注册                 | 否   |
+| POST  | `/login`    | 登录，返回 JWT token | 否   |
+| GET   | `/profile`  | 获取当前用户信息     | 是   |
+| PATCH | `/password` | 修改密码             | 是   |
+
+### 报销单模块 `/api/v1/reimbursements`
+
+| 方法  | 路径           | 说明                             | 鉴权 |
+| ----- | -------------- | -------------------------------- | ---- |
+| POST  | `/`            | 提交报销单                       | 是   |
+| GET   | `/`            | 获取报销单列表（支持分页、筛选） | 是   |
+| GET   | `/:id`         | 获取报销单详情                   | 是   |
+| PATCH | `/:id/approve` | 审批通过/拒绝                    | 是   |
+
+### 报销类型模块 `/api/v1/reimbursement-types`
+
+| 方法   | 路径   | 说明         | 鉴权 |
+| ------ | ------ | ------------ | ---- |
+| POST   | `/`    | 创建报销类型 | 是   |
+| GET    | `/`    | 获取所有类型 | 是   |
+| GET    | `/:id` | 获取类型详情 | 是   |
+| PATCH  | `/:id` | 更新类型     | 是   |
+| DELETE | `/:id` | 删除类型     | 是   |
+
+### 文件模块 `/api/v1/files`
+
+| 方法 | 路径      | 说明                           | 鉴权 |
+| ---- | --------- | ------------------------------ | ---- |
+| POST | `/upload` | 上传文件到七牛云，返回访问 URL | 是   |
+
+### AI 模块 `/api/v1/ai`
+
+| 方法 | 路径    | 说明                           | 鉴权 |
+| ---- | ------- | ------------------------------ | ---- |
+| POST | `/chat` | 发送消息，SSE 流式返回 AI 响应 | 是   |
+
+## 数据模型
+
+### User
+
+```
+username, password(bcrypt), role, createdAt
+```
+
+### Reimbursement
+
+```
+title, amount, type, status(pending/approved/rejected),
+applicant, attachments[], dynamicFields{}, approvalLog[], createdAt
+```
+
+### ReimbursementType
+
+```
+name, description, fields[{name, label, type, required, options[]}]
+```
+
+## 本地开发
 
 ```bash
 # 安装依赖
-npm install
+pnpm install
 
-# 开发模式（热重载）
-npm run start:dev
+# 启动开发服务器（热重载）
+pnpm start:dev
 
-# 生产构建
-npm run build
-npm run start:prod
+# 构建
+pnpm build
+
+# 生产启动
+pnpm start:prod
 ```
 
-### 环境变量
+## 环境变量
 
-在项目根目录创建 `.env` 文件：
+复制并配置 `.env`：
 
 ```env
 PORT=3000
 MONGODB_URI=mongodb://localhost:27017/Reimbursement
 JWT_SECRET=your_jwt_secret
 JWT_EXPIRES_IN=7d
-CORS_ORIGIN=*
 
-# 七牛云
+# 七牛云文件存储
 QINIU_ACCESS_KEY=your_access_key
 QINIU_SECRET_KEY=your_secret_key
 QINIU_BUCKET=your_bucket
-QINIU_DOMAIN=https://your-cdn-domain.com
+QINIU_DOMAIN=https://your-cdn-domain
 
-# gRPC
-GRPC_SERVER_ADDRESS=localhost:50051
+# gRPC AI 服务地址
+GRPC_HOST=localhost
+GRPC_PORT=50051
 ```
 
-## API 接口
+## 生产部署
 
-接口文档：启动后访问 `http://localhost:3000/api-docs`
+Dockerfile 采用三阶段构建：
 
-所有接口统一前缀 `/api/v1`
-
-### 用户模块 `/api/v1/user`
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| POST | /register | 否 | 用户注册 |
-| POST | /login | 否 | 登录，返回 token、权限、菜单树 |
-| GET | /profile | 是 | 获取当前用户信息 |
-
-### 报销类型模块 `/api/v1/reimbursement-types`
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| GET | / | 否 | 获取所有启用的报销类型 |
-| POST | / | 是 | 创建报销类型 |
-| PUT | /:id | 是 | 更新报销类型 |
-| DELETE | /:id | 是 | 删除报销类型 |
-
-### 报销单模块 `/api/v1/reimbursements`
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| GET | / | 是 | 获取报销单列表（管理员全部，普通用户自己的） |
-| GET | /search | 是 | 多条件筛选报销单 |
-| POST | / | 是 | 提交报销单 |
-| PUT | /:id/approve | 是 | 审批（通过/驳回） |
-| PUT | /:id/withdraw | 是 | 撤回报销单 |
-
-### 文件模块 `/api/v1/files`
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| POST | /upload | 是 | 上传文件到七牛云（JPG/PNG/WEBP/PDF，限 10MB） |
-
-## 数据模型
-
-### User 用户
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| username | string | 登录用户名，唯一 |
-| password | string | bcrypt 加密密码 |
-| email | string | 邮箱，唯一 |
-| real_name | string | 真实姓名 |
-| phone | string | 手机号 |
-| avatar | string | 头像 URL |
-| department | string | 所属部门 |
-| status | number | 1 启用 / 0 禁用 |
-| roles | ObjectId[] | 关联角色 |
-
-### Role 角色
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | string | 角色标识符（admin/finance/employee） |
-| label | string | 显示名称 |
-| permissions | ObjectId[] | 关联权限 |
-| menus | ObjectId[] | 关联菜单 |
-
-### ReimbursementType 报销类型
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| code | string | 类型标识符（purchase/travel） |
-| label | string | 显示名称 |
-| fields | FieldConfig[] | 表单字段配置 |
-| formula | string | 计算公式表达式 |
-| over_limit_threshold | number | 超额标准（元），null 不设限 |
-| status | number | 1 启用 / 0 禁用 |
-
-### Reimbursement 报销单
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| applicant | ObjectId | 申请人 |
-| category | ObjectId | 报销类型 |
-| amount | number | 报销金额（元） |
-| detail | object | 类型特有字段 |
-| attachments | ObjectId[] | 附件列表 |
-| status | string | pending/approved/rejected/withdrawn |
-| approver | ObjectId | 审批人 |
-| apply_date | string | 申请日期 |
-| is_over_limit | boolean | 是否超额 |
-
-### 查询返回扩展字段
-| 字段 | 说明 |
-|------|------|
-| applicant_name | 申请人真实姓名（populate 自 User） |
-| calculated_amount | 根据 formula 动态计算的总价 |
-
-## 核心功能
-
-### RBAC 权限体系
-User → Role → Permission/Menu 三级关联，登录后返回权限列表和菜单树，支持前端动态路由。
-
-### 动态金额计算
-报销类型配置 `formula` 表达式和 `is_calculate` 标记字段，查询报销单时自动通过 `new Function` 动态计算总价。
-
-### 超额判断
-报销类型配置 `over_limit_threshold`，报销单通过 `is_over_limit` 标记是否超额。
-
-### gRPC 集成
-通过 `proto/graph_service.proto` 定义与 LangGraph 智能体端的通信协议，支持一次性调用和流式调用。
-
-## 常用命令
+1. 构建前端静态文件（Node 20）
+2. 编译 NestJS 后端（Node 20）
+3. 生产镜像：运行后端，同时通过 `ServeStaticModule` 托管前端
 
 ```bash
-npm run start:dev      # 开发模式
-npm run build          # 构建
-npm run start:prod     # 生产模式
-npm run lint           # 代码检查
-npm run test           # 单元测试
-npm run format         # 代码格式化
+# 在项目根目录执行（构建上下文为根目录）
+docker build -f intelligent_reimbursement_system_server/Dockerfile -t server .
 ```
+
+服务启动后：
+
+- `http://localhost:3000` — 前端页面
+- `http://localhost:3000/api/*` — 后端接口
+- `http://localhost:3000/api-docs` — Swagger 文档
