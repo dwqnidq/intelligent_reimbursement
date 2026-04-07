@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r req
 # 复制项目文件
 COPY . .
 
+# 确保输出目录存在
+RUN mkdir -p ./src/generated
+
 # 生成 gRPC 代码
 RUN python -m grpc_tools.protoc \
     -I./proto \
