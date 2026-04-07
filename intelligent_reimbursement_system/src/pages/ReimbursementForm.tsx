@@ -302,7 +302,7 @@ export default function ReimbursementForm() {
               showPreviewIcon: true,
               showRemoveIcon: true,
             }}
-            itemRender={(originNode, file) => {
+            itemRender={(_originNode, file) => {
               const isImg =
                 file.type?.startsWith("image/") ||
                 /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
