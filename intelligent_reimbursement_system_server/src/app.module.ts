@@ -21,6 +21,10 @@ import { OpinionModule } from './modules/opinion/opinion.module';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'client'),
       exclude: ['/api/(.*)'],
+      serveStaticOptions: {
+        fallthrough: true,
+      },
+      renderPath: '/*',
     }),
     AuthModule,
     UserModule,
