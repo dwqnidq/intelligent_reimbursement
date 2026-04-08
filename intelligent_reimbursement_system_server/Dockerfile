@@ -36,6 +36,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=backend-builder /app/dist ./dist
 COPY --from=frontend-builder /frontend/dist ./client
+COPY intelligent_reimbursement_system_langgraph/proto ./proto
 
 EXPOSE 3000
 

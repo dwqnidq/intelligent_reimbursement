@@ -35,8 +35,8 @@ export class GrpcClientService implements OnModuleInit {
     try {
       const PROTO_PATH = join(
         __dirname,
-        '../../../..',
-        'intelligent_reimbursement_system_langgraph/proto/graph_service.proto',
+        '../../..',
+        'proto/graph_service.proto',
       );
 
       const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
