@@ -20,8 +20,8 @@ import { OpinionModule } from './modules/opinion/opinion.module';
     // 托管前端打包产物，所有非 /api 路由返回 index.html（SPA 路由支持）
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'client'),
-      exclude: ['/api*'],
-      renderPath: '/*',
+      exclude: ['/api{*path}'],
+      renderPath: '/{*path}',
     }),
     AuthModule,
     UserModule,
