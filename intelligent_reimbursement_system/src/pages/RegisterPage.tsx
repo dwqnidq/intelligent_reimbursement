@@ -31,8 +31,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-sm">
+    <div className="h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-sm max-h-full overflow-y-auto scrollbar-hide">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500 mb-4">

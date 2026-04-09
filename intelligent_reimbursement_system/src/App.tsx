@@ -9,8 +9,8 @@ import AuthGuard from "./router/AuthGuard";
 import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import OpinionPage from "./pages/OpinionPage";
 import SetTokenPage from "./pages/SetTokenPage";
+import PasswordSetupPage from "./pages/PasswordSetupPage";
 import AIAssistant from "./components/AIAssistant";
 import { componentMap } from "./router/componentMap";
 import type { MenuItem } from "./api/user";
@@ -67,7 +67,14 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/set-token" element={<SetTokenPage />} />
-            <Route path="/opinion" element={<OpinionPage />} />
+            <Route
+              path="/password-setup"
+              element={
+                <AuthGuard>
+                  <PasswordSetupPage />
+                </AuthGuard>
+              }
+            />
             <Route
               path="/"
               element={

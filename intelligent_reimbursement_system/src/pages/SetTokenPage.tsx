@@ -29,6 +29,10 @@ export default function SetTokenPage() {
           permissions: res.permissions,
           menus: res.menus as never,
         });
+        if (res.user.password_login_enabled === false) {
+          navigate("/password-setup", { replace: true });
+          return;
+        }
       } catch {
         navigate("/login", { replace: true });
         return;

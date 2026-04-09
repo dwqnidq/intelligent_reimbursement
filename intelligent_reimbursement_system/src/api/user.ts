@@ -11,6 +11,7 @@ export interface UserInfo {
   real_name: string;
   email: string;
   avatar?: string;
+  password_login_enabled?: boolean;
 }
 
 export interface MenuItem {
@@ -59,3 +60,6 @@ export const changePassword = (params: {
   old_password: string;
   new_password: string;
 }) => http.patch<void>("/users/password", params);
+
+export const setupPassword = (params: { new_password: string }) =>
+  http.patch<void>("/users/password/setup", params);

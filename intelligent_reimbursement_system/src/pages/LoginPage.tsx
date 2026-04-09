@@ -37,6 +37,7 @@ export default function LoginPage() {
       };
       const from =
         (location.state as { from?: Location })?.from?.pathname ??
+        (res.user.password_login_enabled === false ? "/password-setup" : null) ??
         findFirstPath(res.menus) ??
         "/";
       navigate(from, { replace: true });
@@ -64,7 +65,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 className="text-xl font-semibold text-gray-800">报销管理系统</h1>
-          <p className="text-sm text-gray-400 mt-1">请使用用户名/邮箱登录</p>
+          <p className="text-sm text-gray-400 mt-1">请使用用户名/手机号/邮箱登录</p>
         </div>
 
         {/* 表单 */}
@@ -72,11 +73,11 @@ export default function LoginPage() {
           <Form form={form} layout="vertical" onFinish={onFinish} size="large">
             <Form.Item
               name="username"
-              rules={[{ required: true, message: "请输入用户名" }]}
+              rules={[{ required: true, message: "请输入用户名、手机号或邮箱" }]}
             >
               <Input
                 prefix={<UserOutlined className="text-gray-300" />}
-                placeholder="用户名或邮箱"
+                placeholder="用户名、手机号或邮箱"
               />
             </Form.Item>
 

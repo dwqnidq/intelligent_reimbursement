@@ -52,6 +52,15 @@ body,
   display: none; /* Chrome/Safari */
 }
 
+/* ===== 通用：可滚动但不显示滚动条 ===== */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* ===== 布局撑满 ===== */
 .ant-layout {
   min-height: 100% !important;

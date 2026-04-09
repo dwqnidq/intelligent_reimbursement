@@ -70,8 +70,33 @@ export class UserService {
   }
 
   async login(dto: LoginDto) {
+    const identifier = (dto.username ?? '').trim();
+    const emailCandidate = identifier.toLowerCase();
+    const digitsOnly = identifier.replace(/\s|-/g, '');
+    const isPhoneLike =
+      /^\+?\d{6,20}$/.test(digitsOnly) || /^\d{11}$/.test(digitsOnly);
+    const phoneCandidates = isPhoneLike
+      ? Array.from(
+          new Set([
+            identifier,
+            digitsOnly,
+            digitsOnly.replace(/^\+/, ''),
+            digitsOnly.replace(/^\+86/, ''),
+            digitsOnly.startsWith('+') ? digitsOnly : `+${digitsOnly}`,
+            digitsOnly.startsWith('86') ? `+${digitsOnly}` : `+86${digitsOnly}`,
+            digitsOnly.startsWith('86') ? digitsOnly : `86${digitsOnly}`,
+          ]),
+        ).filter(Boolean)
+      : [];
+
     const user = await this.userModel
-      .findOne({ $or: [{ username: dto.username }, { email: dto.username }] })
+      .findOne({
+        $or: [
+          { username: identifier },
+          { email: emailCandidate },
+          ...(phoneCandidates.length ? [{ phone: { $in: phoneCandidates } }] : []),
+        ],
+      })
       .populate({
         path: 'roles',
         populate: [{ path: 'permissions' }, { path: 'menus' }],
@@ -113,6 +138,7 @@ export class UserService {
         real_name: user.real_name,
         email: user.email,
         avatar: user.avatar ?? '',
+        password_login_enabled: user.password_login_enabled,
       },
       permissions,
       menus,
@@ -297,6 +323,7 @@ export class UserService {
         real_name: user.real_name,
         email: user.email,
         avatar: user.avatar ?? '',
+        password_login_enabled: user.password_login_enabled,
       },
       permissions,
       menus,

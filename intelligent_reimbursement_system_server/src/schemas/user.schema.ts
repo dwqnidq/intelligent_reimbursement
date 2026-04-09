@@ -10,7 +10,7 @@ export class User extends Document {
   @Prop({ required: true, minlength: 6 })
   password: string;
 
-  @Prop({ required: true, unique: true, lowercase: true })
+  @Prop({ required: true, lowercase: true })
   email: string;
 
   @Prop({ required: true })
@@ -41,6 +41,7 @@ export class User extends Document {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index({ email: 1, phone: 1, real_name: 1 }, { unique: true });
 
 UserSchema.pre('save', async function (this: User) {
   if (!this.isModified('password')) return;
