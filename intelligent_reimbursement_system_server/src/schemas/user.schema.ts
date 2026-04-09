@@ -31,6 +31,12 @@ export class User extends Document {
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Role' }] })
   roles: Types.ObjectId[];
 
+  @Prop({ default: 'local', enum: ['local', 'feishu'] })
+  auth_provider: 'local' | 'feishu';
+
+  @Prop({ default: true })
+  password_login_enabled: boolean;
+
   comparePassword: (plain: string) => Promise<boolean>;
 }
 

@@ -64,7 +64,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 className="text-xl font-semibold text-gray-800">报销管理系统</h1>
-          <p className="text-sm text-gray-400 mt-1">请登录您的账号</p>
+          <p className="text-sm text-gray-400 mt-1">请使用用户名/邮箱登录</p>
         </div>
 
         {/* 表单 */}
@@ -76,7 +76,7 @@ export default function LoginPage() {
             >
               <Input
                 prefix={<UserOutlined className="text-gray-300" />}
-                placeholder="用户名"
+                placeholder="用户名或邮箱"
               />
             </Form.Item>
 
@@ -121,6 +121,21 @@ export default function LoginPage() {
           >
             立即注册
           </a>
+        </p>
+        <p className="text-center text-sm text-gray-400 mt-3">
+          <a
+            className="text-blue-500 hover:text-blue-600 cursor-pointer"
+            onClick={() => {
+              const appId = import.meta.env.VITE_FEISHU_APP_ID;
+              const redirectUri = import.meta.env.VITE_REDIRECT_URI;
+              window.location.href = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?app_id=${appId}&redirect_uri=${redirectUri}`;
+            }}
+          >
+            使用飞书账号登录
+          </a>
+        </p>
+        <p className="text-center text-xs text-gray-400 mt-2">
+          飞书首次登录后，可在个人中心设置密码再使用账号登录
         </p>
       </div>
     </div>
