@@ -5,6 +5,13 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /frontend
 
+ARG VITE_API_BASE_URL=/api
+ARG VITE_FEISHU_APP_ID
+ARG VITE_REDIRECT_URI
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_FEISHU_APP_ID=${VITE_FEISHU_APP_ID}
+ENV VITE_REDIRECT_URI=${VITE_REDIRECT_URI}
+
 COPY intelligent_reimbursement_system/package*.json ./
 RUN npm install
 
