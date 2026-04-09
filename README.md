@@ -121,10 +121,30 @@ GRPC_HOST=langgraph
 GRPC_PORT=50051
 ```
 
+另外，根目录 `docker-compose.yml` 使用根目录环境文件传递前端构建变量（`VITE_*`）：
+
+- 开发环境：`.env.dev`
+- 生产环境：`.env.prod`
+
+可用模板：
+
+- `/.env.dev.example`
+- `/.env.prod.example`
+- `intelligent_reimbursement_system/.env.development.example`
+- `intelligent_reimbursement_system/.env.production.example`
+- `intelligent_reimbursement_system_server/.env.development.example`
+- `intelligent_reimbursement_system_server/.env.production.example`
+
 ### 3. 启动服务
 
 ```bash
-docker compose up -d --build
+# 开发环境
+cp .env.dev.example .env.dev
+docker compose --env-file .env.dev up -d --build
+
+# 生产环境
+cp .env.prod.example .env.prod
+docker compose --env-file .env.prod up -d --build
 ```
 
 首次构建需要几分钟（编译前端、安装 Python 依赖）。
@@ -146,8 +166,11 @@ docker compose ps
 docker compose logs -f server
 docker compose logs -f langgraph
 
-# 重新构建某个服务
-docker compose up -d --build server
+# 重新构建某个服务（开发环境）
+docker compose --env-file .env.dev up -d --build server
+
+# 重新构建某个服务（生产环境）
+docker compose --env-file .env.prod up -d --build server
 
 # 停止所有服务（数据不丢失）
 docker compose down

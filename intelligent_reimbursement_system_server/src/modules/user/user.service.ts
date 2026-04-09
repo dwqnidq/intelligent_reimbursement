@@ -198,6 +198,7 @@ export class UserService {
   async feishuLogin(code: string): Promise<string> {
     const appId = process.env.FEISHU_APP_ID;
     const appSecret = process.env.FEISHU_APP_SECRET;
+    const redirectUri = process.env.FEISHU_REDIRECT_URI;
     // 1. 用 code 换 access_token
     const tokenRes = await fetch(
       'https://open.feishu.cn/open-apis/authen/v2/oauth/token',
@@ -209,7 +210,7 @@ export class UserService {
           code,
           client_id: appId,
           client_secret: appSecret,
-          redirect_uri: 'http://localhost:3000/api/users/auth/feishu',
+          redirect_uri: redirectUri,
         }),
       },
     );
