@@ -1,0 +1,13 @@
+# 自动化部署验证文件（可安全删除）
+
+用途：推送到 main 后，若 CI 与服务器配置正确，该文件应出现在服务器部署目录中。
+
+验证步骤：
+1. 将本变更 git commit 并 push 到 origin/main。
+2. 在 GitHub Actions 中确认 “Deploy” 工作流成功（绿色对勾）。
+3. SSH 登录服务器，进入 DEPLOY_PATH（默认 /root/intelligent_reimbursement），执行：
+   cat DEPLOYMENT_CHECK.txt
+   若内容与仓库一致，说明拉取与部署链路正常。
+
+部署标记（修改此行并再次推送，可验证“新版本是否上线”）：
+marker=2026-04-10-deploy-test-1
