@@ -14,6 +14,9 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from config import ARK_API_KEY, ARK_BASE_URL, DOUBAO_MODEL
 
+# 方舟/豆包 Seed 等模型：关闭思考模式（走 extra_body，避免 OpenAI SDK 把 thinking 当成 create() 非法参数）
+_ARK_EXTRA_BODY = {"thinking": {"type": "disabled"}}
+
 llm = ChatOpenAI(
     model=DOUBAO_MODEL,
     openai_api_key=ARK_API_KEY,
@@ -21,6 +24,11 @@ llm = ChatOpenAI(
     temperature=0.7,
     max_tokens=8000,
     streaming=True,  # 开启流式
+    extra_body={
+        "thinking": {
+            "type": "disabled" # 强制关闭思考模式
+        }
+    }
 )
 
 
@@ -156,6 +164,11 @@ llm_vision = ChatOpenAI(
     openai_api_base=ARK_BASE_URL,
     temperature=0,
     max_tokens=5000,
+    extra_body={
+        "thinking": {
+            "type": "disabled" # 强制关闭思考模式
+        }
+    }
 )
 llm_vision_structured = llm_vision.with_structured_output(InvoiceResultList)
 
