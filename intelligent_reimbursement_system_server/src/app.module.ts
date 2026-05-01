@@ -13,6 +13,7 @@ import { OpinionModule } from './modules/opinion/opinion.module';
 import { DepartmentModule } from './modules/department/department.module';
 import { EmployeeModule } from './modules/employee/employee.module';
 import { ApprovalFlowModule } from './modules/approval-flow/approval-flow.module';
+import { ApprovalRecordModule } from './modules/approval-record/approval-record.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ApprovalFlowModule } from './modules/approval-flow/approval-flow.module
     DepartmentModule,
     EmployeeModule,
     ApprovalFlowModule,
+    ApprovalRecordModule,
   ],
 })
 export class AppModule {}
