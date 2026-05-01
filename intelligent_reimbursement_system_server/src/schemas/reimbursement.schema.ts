@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-@Schema({ timestamps: true, collection: 'reimbursements_records' })
+@Schema({ timestamps: true, collection: 'reimbursement_record' })
 export class Reimbursement extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   applicant: Types.ObjectId;
