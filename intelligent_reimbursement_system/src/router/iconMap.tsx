@@ -6,6 +6,7 @@ import {
   AppstoreAddOutlined,
   UserOutlined,
   SettingOutlined,
+  ApartmentOutlined,
 } from "@ant-design/icons";
 
 export const iconMap: Record<string, ReactNode> = {
@@ -15,4 +16,5 @@ export const iconMap: Record<string, ReactNode> = {
   AppstoreAddOutlined: <AppstoreAddOutlined />,
   UserOutlined: <UserOutlined />,
   SettingOutlined: <SettingOutlined />,
+  ApartmentOutlined: <ApartmentOutlined />,
 };

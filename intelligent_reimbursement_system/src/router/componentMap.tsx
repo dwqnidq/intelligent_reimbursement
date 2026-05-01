@@ -6,6 +6,7 @@ import ReimbursementTypeCreate from "../pages/ReimbursementTypeCreate";
 import ProfilePage from "../pages/ProfilePage";
 import OpinionPage from "../pages/OpinionPage";
 import OpinionSubmitPage from "../pages/OpinionSubmitPage";
+import DepartmentManage from "../pages/DepartmentManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -15,4 +16,5 @@ export const componentMap: Record<string, ComponentType> = {
   ProfilePage,
   OpinionPage,
   OpinionSubmitPage,
+  DepartmentManage,
 };
