@@ -7,6 +7,7 @@ import ProfilePage from "../pages/ProfilePage";
 import OpinionPage from "../pages/OpinionPage";
 import OpinionSubmitPage from "../pages/OpinionSubmitPage";
 import DepartmentManage from "../pages/DepartmentManage";
+import EmployeeManage from "../pages/EmployeeManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -17,4 +18,5 @@ export const componentMap: Record<string, ComponentType> = {
   OpinionPage,
   OpinionSubmitPage,
   DepartmentManage,
+  EmployeeManage,
 };
