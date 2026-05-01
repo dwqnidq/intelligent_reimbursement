@@ -10,6 +10,7 @@ import { FileModule } from './modules/file/file.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AiModule } from './modules/ai/ai.module';
 import { OpinionModule } from './modules/opinion/opinion.module';
+import { DepartmentModule } from './modules/department/department.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { OpinionModule } from './modules/opinion/opinion.module';
     FileModule,
     AiModule,
     OpinionModule,
+    DepartmentModule,
   ],
 })
 export class AppModule {}
