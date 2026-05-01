@@ -8,6 +8,7 @@ import OpinionPage from "../pages/OpinionPage";
 import OpinionSubmitPage from "../pages/OpinionSubmitPage";
 import DepartmentManage from "../pages/DepartmentManage";
 import EmployeeManage from "../pages/EmployeeManage";
+import ApprovalFlowManage from "../pages/ApprovalFlowManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -19,4 +20,5 @@ export const componentMap: Record<string, ComponentType> = {
   OpinionSubmitPage,
   DepartmentManage,
   EmployeeManage,
+  ApprovalFlowManage,
 };
