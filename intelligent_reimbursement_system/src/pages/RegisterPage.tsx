@@ -1,21 +1,23 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Form, Input, Button, Select, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { register } from '../api/user'
 import type { RegisterParams } from '../api/user'
-
-const departmentOptions = [
-  { label: '技术部', value: '技术部' },
-  { label: '市场部', value: '市场部' },
-  { label: '财务部', value: '财务部' },
-  { label: '行政部', value: '行政部' },
-  { label: '人事部', value: '人事部' },
-]
+import { getDepartments } from '../api/department'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [departmentOptions, setDepartmentOptions] = useState<{ label: string; value: string }[]>([])
+
+  useEffect(() => {
+    getDepartments({ status: 1 }).then((data) => {
+      setDepartmentOptions(
+        (Array.isArray(data) ? data : []).map((d) => ({ label: d.name, value: d.name }))
+      )
+    }).catch(() => {})
+  }, [])
 
   const onFinish = async (values: RegisterParams) => {
     setLoading(true)
@@ -31,20 +33,50 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-sm max-h-full overflow-y-auto scrollbar-hide">
+    <div
+      className="h-screen flex items-center justify-center px-4 py-8 relative"
+      style={{ background: "linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #f0f9ff 100%)" }}
+    >
+      <div
+        style={{
+          position: "absolute", top: "-100px", right: "-80px",
+          width: "450px", height: "450px", borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(37,99,235,0.15) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute", bottom: "-120px", left: "-100px",
+          width: "500px", height: "500px", borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(37,99,235,0.12) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+
+      <div className="w-full max-w-sm max-h-full overflow-y-auto scrollbar-hide relative" style={{ zIndex: 1 }}>
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-500 mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <div
+            className="inline-flex items-center justify-center rounded-2xl mb-5"
+            style={{
+              width: 56, height: 56,
+              background: "#2563eb",
+              boxShadow: "0 8px 30px rgba(37, 99, 235, 0.3)",
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-gray-800">创建账号</h1>
-          <p className="text-sm text-gray-400 mt-1">填写信息完成注册</p>
+          <h1 className="text-xl font-bold text-[var(--text-primary)] tracking-tight">创建账号</h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-2">填写信息完成注册</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm p-8">
+        <div
+          className="bg-[var(--bg-card)] rounded-2xl p-8 border border-[var(--border-color)]"
+          style={{ boxShadow: "0 4px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)" }}
+        >
           <Form form={form} layout="vertical" onFinish={onFinish} size="large">
             <Form.Item
               label="用户名"
@@ -97,16 +129,16 @@ export default function RegisterPage() {
             </Form.Item>
 
             <Form.Item className="mb-0 mt-2">
-              <Button type="primary" htmlType="submit" className="w-full" size="large" loading={loading}>
+              <Button type="primary" htmlType="submit" className="w-full !h-11 !text-[15px] !font-semibold" size="large" loading={loading}>
                 注册
               </Button>
             </Form.Item>
           </Form>
         </div>
 
-        <p className="text-center text-sm text-gray-400 mt-4">
+        <p className="text-center text-sm text-[var(--text-secondary)] mt-7">
           已有账号？
-          <a className="text-blue-500 hover:text-blue-600 ml-1 cursor-pointer" onClick={() => navigate('/login')}>
+          <a className="text-[var(--color-primary)] hover:opacity-80 ml-1 cursor-pointer transition-opacity font-medium" onClick={() => navigate('/login')}>
             立即登录
           </a>
         </p>

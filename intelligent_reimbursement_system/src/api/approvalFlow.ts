@@ -2,34 +2,39 @@ import http from "./http";
 
 export interface ApprovalNodeData {
   node_id: string;
-  name: string;
-  approver_id: string;
+  approver_ids: string[];
   sign_type: "countersign" | "orsign";
   sort: number;
 }
 
-export interface ApprovalFlow {
+export interface ApproverDetail {
   _id: string;
   name: string;
+  avatar: string;
+  position: string;
+  dept_id: { _id: string; name: string };
+}
+
+export interface ApprovalFlow {
+  _id: string;
   type_code: string;
   enabled: boolean;
-  nodes: (ApprovalNodeData & {
-    approver_id: {
-      _id: string;
-      name: string;
-      avatar: string;
-      position: string;
-      dept_id: { _id: string; name: string };
-    };
+  nodes: (Omit<ApprovalNodeData, "approver_ids"> & {
+    approver_ids: ApproverDetail[];
   })[];
   created_by?: { _id: string; real_name: string };
+  amount_min?: number;
+  amount_max?: number | null;
+  priority?: number;
 }
 
 export interface CreateApprovalFlowParams {
-  name: string;
   type_code: string;
   enabled?: boolean;
   nodes: ApprovalNodeData[];
+  amount_min?: number;
+  amount_max?: number;
+  priority?: number;
 }
 
 export const getApprovalFlows = () =>
@@ -51,3 +56,6 @@ export const toggleApprovalFlow = (id: string) =>
 
 export const deleteApprovalFlow = (id: string) =>
   http.delete<{ id: string }>(`/approval-flows/${id}`);
+
+export const reorderApprovalFlows = (ids: string[]) =>
+  http.post<{ success: boolean }>("/approval-flows/reorder", { ids });

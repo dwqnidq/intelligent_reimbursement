@@ -9,6 +9,11 @@ import OpinionSubmitPage from "../pages/OpinionSubmitPage";
 import DepartmentManage from "../pages/DepartmentManage";
 import EmployeeManage from "../pages/EmployeeManage";
 import ApprovalFlowManage from "../pages/ApprovalFlowManage";
+import PendingApprovalPage from "../pages/PendingApprovalPage";
+import ApprovalHistoryPage from "../pages/ApprovalHistoryPage";
+import RoleManage from "../pages/RoleManage";
+import PermissionManage from "../pages/PermissionManage";
+import MenuManage from "../pages/MenuManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -21,4 +26,9 @@ export const componentMap: Record<string, ComponentType> = {
   DepartmentManage,
   EmployeeManage,
   ApprovalFlowManage,
+  PendingApprovalPage,
+  ApprovalHistoryPage,
+  RoleManage,
+  PermissionManage,
+  MenuManage,
 };

@@ -55,14 +55,10 @@ export default function DepartmentManage() {
   }, []);
 
   // 搜索员工
-  const handleEmployeeSearch = useCallback(async (keyword: string) => {
-    if (!keyword.trim()) {
-      setEmployeeOptions([]);
-      return;
-    }
+  const handleEmployeeSearch = useCallback(async (keyword?: string) => {
     setEmployeeLoading(true);
     try {
-      const res = await getEmployees({ name: keyword, page: 1, page_size: 20 });
+      const res = await getEmployees({ name: keyword || undefined, page: 1, page_size: 50 });
       const list = res?.list ?? [];
       setEmployeeOptions(list);
     } catch {
@@ -299,13 +295,22 @@ export default function DepartmentManage() {
             <Form.Item label="负责人" name="manager_id">
               <Select
                 showSearch
-                placeholder="搜索员工姓名选择负责人"
+                placeholder="搜索或点击选择负责人"
                 filterOption={false}
                 onSearch={handleEmployeeSearch}
+                onDropdownVisibleChange={(open) => {
+                  if (open && employeeOptions.length === 0) handleEmployeeSearch();
+                }}
                 loading={employeeLoading}
                 allowClear
                 options={employeeOptions.map((emp) => ({
-                  label: emp.name + (emp.position ? ` (${emp.position})` : ""),
+                  label: (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{emp.name}</span>
+                      {emp.position && <span className="text-[var(--text-tertiary)] text-xs">{emp.position}</span>}
+                      {emp.employee_no && <span className="text-[var(--text-tertiary)] text-xs">({emp.employee_no})</span>}
+                    </div>
+                  ),
                   value: emp._id,
                 }))}
               />

@@ -92,16 +92,18 @@ export default function MainLayout() {
   );
 
   const logo = (
-    <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
-      <MoneyCollectOutlined className="text-blue-500 text-xl" />
-      <span className="font-semibold text-gray-800 text-sm">报销管理系统</span>
+    <div className="flex items-center gap-2.5 px-5 py-5 border-b border-[var(--border-color)]">
+      <MoneyCollectOutlined style={{ color: "var(--color-primary)", fontSize: 20 }} />
+      <span className="font-semibold text-[var(--text-primary)] text-sm">
+        报销管理系统
+      </span>
     </div>
   );
 
   return (
     <Layout style={{ height: "100vh" }}>
       {!isMobile && (
-        <Sider width={220} theme="light" className="shadow-md">
+        <Sider width={224} theme="light">
           {logo}
           {sideMenu}
         </Sider>
@@ -111,11 +113,11 @@ export default function MainLayout() {
         placement="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={220}
+        size="default"
         styles={{ body: { padding: 0 } }}
         title={
-          <div className="flex items-center gap-2">
-            <MoneyCollectOutlined className="text-blue-500" />
+          <div className="flex items-center gap-2.5">
+            <MoneyCollectOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
             <span className="text-sm font-semibold">报销管理系统</span>
           </div>
         }
@@ -125,12 +127,17 @@ export default function MainLayout() {
 
       <Layout style={{ overflow: "hidden" }}>
         <Header
-          className="bg-white shadow-sm flex items-center gap-3 px-4"
           style={{
-            height: 52,
-            lineHeight: "52px",
-            padding: "0 16px",
+            height: 56,
+            lineHeight: "56px",
+            padding: "0 24px",
             flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            background: "var(--bg-header)",
+            borderBottom: "none",
+            boxShadow: "var(--shadow-header)",
           }}
         >
           {isMobile && (
@@ -141,14 +148,14 @@ export default function MainLayout() {
               className="flex items-center justify-center"
             />
           )}
-          <span className="font-medium text-gray-700 text-sm md:text-base">
+          <span className="font-semibold text-[var(--text-primary)] text-[15px]">
             {currentLabel}
           </span>
 
           <div className="ml-auto flex items-center gap-2">
             <Button
               type="text"
-              icon={<BellOutlined />}
+              icon={<BellOutlined className="text-[var(--text-secondary)] text-base" />}
               className="flex items-center justify-center"
             />
             <Dropdown
@@ -156,15 +163,15 @@ export default function MainLayout() {
               placement="bottomRight"
               trigger={["click"]}
             >
-              <div className="flex items-center gap-2 cursor-pointer px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className="flex items-center gap-2.5 cursor-pointer px-3 py-1.5 rounded-xl hover:bg-[var(--bg-page)] transition-colors">
                 <Avatar
                   size={30}
                   src={user?.avatar || undefined}
                   icon={!user?.avatar && <UserOutlined />}
-                  className="bg-blue-500"
+                  className="bg-[var(--color-primary)]"
                 />
                 {!isMobile && (
-                  <span className="text-sm text-gray-700 select-none">
+                  <span className="text-sm text-[var(--text-primary)] select-none font-medium">
                     {user?.real_name ?? user?.username}
                   </span>
                 )}
@@ -174,8 +181,13 @@ export default function MainLayout() {
         </Header>
 
         <Content
-          className="p-3 md:p-6 bg-gray-50 flex flex-col"
-          style={{ overflowY: "auto", flex: 1, minHeight: 0 }}
+          className="p-4 md:p-6"
+          style={{
+            overflowY: "auto",
+            flex: 1,
+            minHeight: 0,
+            background: "var(--bg-page)",
+          }}
         >
           <Outlet />
         </Content>

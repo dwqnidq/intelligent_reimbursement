@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, Form, Input, Button, List, Tag, Typography, message } from "antd";
-import { MessageOutlined } from "@ant-design/icons";
+import { MessageOutlined, FormOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { createOpinion, getMyOpinions, type OpinionItem } from "../api/opinion";
 
@@ -50,8 +50,10 @@ export default function OpinionSubmitPage() {
       <div className="max-w-3xl w-full mx-auto space-y-6 flex-1 min-h-0">
         <Card
           title={
-            <span className="flex items-center gap-2">
-              <MessageOutlined className="text-blue-500" />
+            <span className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--color-primary-bg)]">
+                <FormOutlined className="text-[var(--color-primary)] text-xs" />
+              </div>
               填写意见反馈
             </span>
           }
@@ -84,7 +86,16 @@ export default function OpinionSubmitPage() {
           </Form>
         </Card>
 
-        <Card title="我提交的意见">
+        <Card
+          title={
+            <span className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--color-primary-bg)]">
+                <MessageOutlined className="text-[var(--color-primary)] text-xs" />
+              </div>
+              我提交的意见
+            </span>
+          }
+        >
           <List
             loading={loading}
             dataSource={opinions}
@@ -93,12 +104,12 @@ export default function OpinionSubmitPage() {
               <List.Item>
                 <div className="w-full">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-gray-800">{item.title}</span>
+                    <span className="font-medium text-[var(--text-primary)]">{item.title}</span>
                     <Tag color={statusMap[item.status]?.color}>
                       {statusMap[item.status]?.label}
                     </Tag>
                   </div>
-                  <p className="text-gray-600 text-sm mb-2">{item.content}</p>
+                  <p className="text-[var(--text-secondary)] text-sm mb-2">{item.content}</p>
                   <Text type="secondary">
                     {dayjs(item.createdAt).format("YYYY-MM-DD HH:mm")}
                   </Text>
@@ -111,4 +122,3 @@ export default function OpinionSubmitPage() {
     </div>
   );
 }
-

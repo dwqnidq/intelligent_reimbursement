@@ -8,6 +8,13 @@ import {
   SettingOutlined,
   ApartmentOutlined,
   BranchesOutlined,
+  TeamOutlined,
+  MessageOutlined,
+  AuditOutlined,
+  SafetyOutlined,
+  KeyOutlined,
+  MenuOutlined,
+  HistoryOutlined,
 } from "@ant-design/icons";
 
 export const iconMap: Record<string, ReactNode> = {
@@ -19,4 +26,11 @@ export const iconMap: Record<string, ReactNode> = {
   SettingOutlined: <SettingOutlined />,
   ApartmentOutlined: <ApartmentOutlined />,
   BranchesOutlined: <BranchesOutlined />,
+  TeamOutlined: <TeamOutlined />,
+  MessageOutlined: <MessageOutlined />,
+  AuditOutlined: <AuditOutlined />,
+  SafetyOutlined: <SafetyOutlined />,
+  KeyOutlined: <KeyOutlined />,
+  MenuOutlined: <MenuOutlined />,
+  HistoryOutlined: <HistoryOutlined />,
 };

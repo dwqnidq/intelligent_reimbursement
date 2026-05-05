@@ -28,6 +28,7 @@ export interface MenuItem {
 
 export interface LoginResult {
   token: string;
+  refreshToken: string;
   user: UserInfo;
   permissions: string[];
   menus: MenuItem[];
@@ -44,6 +45,11 @@ export interface RegisterParams {
 
 export const login = (params: LoginParams) =>
   http.post<LoginResult>("/users/login", params);
+
+export const refreshToken = (refreshTokenValue: string) =>
+  http.post<Pick<LoginResult, "token" | "refreshToken">>("/users/refresh-token", {
+    refreshToken: refreshTokenValue,
+  });
 
 export const register = (params: RegisterParams) =>
   http.post<void>("/users", params);

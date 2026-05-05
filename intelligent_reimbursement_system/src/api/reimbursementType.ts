@@ -35,7 +35,7 @@ export interface CreateReimbursementTypeParams {
 }
 
 export const createReimbursementType = (
-  params: CreateReimbursementTypeParams,
+  params: CreateReimbursementTypeParams[],
 ) => http.post<void>("/reimbursement-types", params);
 
 export const deleteReimbursementType = (id: string) =>

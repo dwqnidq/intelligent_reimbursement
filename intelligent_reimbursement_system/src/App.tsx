@@ -85,6 +85,7 @@ export default function App() {
             >
               <Route index element={<IndexRedirect />} />
               {dynamicRoutes}
+              <Route path="*" element={<IndexRedirect />} />
             </Route>
           </Routes>
           <AIAssistantGuard />

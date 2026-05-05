@@ -34,11 +34,13 @@ export interface ReimbursementType {
 
 export interface ReimbursementRecord {
   _id: string;
+  submission_batch_id?: string;
   category: string;
   applicant_name?: string;
   amount: number;
   total_price?: number;
   is_over_limit?: boolean;
+  has_approval_flow?: boolean;
   attachments: string[];
   status: "pending" | "approved" | "rejected";
   approver: string | null;
@@ -55,13 +57,39 @@ export interface ReimbursementListResult {
   size: number;
 }
 
+export interface ReimbursementTreeGroup {
+  key: string;
+  _id: string;
+  is_group: true;
+  submission_batch_id: string;
+  applicant_name: string | null;
+  apply_date: string | null;
+  total_amount: number;
+  count: number;
+  status: "pending" | "approved" | "rejected" | "mixed";
+  children: ReimbursementRecord[];
+}
+
+export interface ReimbursementTreeResult {
+  list: ReimbursementTreeGroup[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+/** 与 Nest CreateReimbursementDto 一致，为请求体数组中的单项 */
 export interface CreateReimbursementParams {
   applicant_name: string;
   category: string;
-  amount?: number;
-  detail: Record<string, unknown>;
+  /** 该包内每条 detail 对应数据库一条记录，至少 1 条 */
+  details: Record<string, unknown>[];
   attachments: string[];
   apply_date: string;
+}
+
+export interface CreateReimbursementResult {
+  ids: string[];
+  count: number;
 }
 
 export interface ReimbursementListParams {
@@ -84,8 +112,12 @@ export const getReimbursementList = (params?: ReimbursementListParams) =>
 export const searchReimbursement = (params: ReimbursementListParams) =>
   http.get<ReimbursementListResult>("/reimbursements", { params });
 
-export const createReimbursement = (params: CreateReimbursementParams) =>
-  http.post<void>("/reimbursements", params);
+export const getReimbursementTreeList = (params?: ReimbursementListParams) =>
+  http.get<ReimbursementTreeResult>("/reimbursements/tree", { params });
+
+/** 请求体为数组：每项一包；前端多行表单通常映射为 [{..., details:[row1]}, {..., details:[row2]}, ...] */
+export const createReimbursement = (payload: CreateReimbursementParams[]) =>
+  http.post<CreateReimbursementResult>("/reimbursements", payload);
 
 export interface UpdateStatusParams {
   status: "pending" | "approved" | "rejected" | "withdrawn";

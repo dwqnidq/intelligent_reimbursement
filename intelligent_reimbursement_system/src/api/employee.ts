@@ -10,6 +10,7 @@ export interface Employee {
   phone?: string;
   avatar?: string;
   status: number;
+  uid?: string;
 }
 
 export interface EmployeeListResponse {

@@ -1,6 +1,14 @@
 import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 import { message } from "antd";
+import { useAuthStore } from "../store/useAuthStore";
+
+interface AuthStorageState {
+  state?: {
+    token?: string;
+    refreshToken?: string;
+  };
+}
 
 const axiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -9,11 +17,60 @@ const axiosInstance = axios.create({
   withCredentials: true,
 });
 
+let refreshingPromise: Promise<{ token: string; refreshToken: string }> | null = null;
+
+function getAuthStorage() {
+  try {
+    const raw = localStorage.getItem("auth-storage");
+    return raw ? (JSON.parse(raw) as AuthStorageState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredToken() {
+  return getAuthStorage()?.state?.token ?? "";
+}
+
+function getStoredRefreshToken() {
+  return getAuthStorage()?.state?.refreshToken ?? "";
+}
+
+function redirectToLogin() {
+  useAuthStore.getState().clearAuth();
+  if (window.location.pathname !== "/login") {
+    window.location.replace("/login");
+  }
+}
+
+async function doRefreshToken() {
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken) {
+    throw new Error("缺少 refreshToken");
+  }
+
+  const response = await axios.post(
+    "/users/refresh-token",
+    { refreshToken },
+    {
+      baseURL: import.meta.env.VITE_API_BASE_URL,
+      withCredentials: true,
+      timeout: 10000,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+
+  const payload = response.data?.data ?? response.data;
+  if (!payload?.token || !payload?.refreshToken) {
+    throw new Error("refreshToken 响应格式错误");
+  }
+  return { token: payload.token as string, refreshToken: payload.refreshToken as string };
+}
+
 // 请求拦截器：从 zustand store 读取 token
 axiosInstance.interceptors.request.use(
   (config) => {
-    const raw = localStorage.getItem("auth-storage");
-    const token = raw ? JSON.parse(raw)?.state?.token : "";
+    const token = getStoredToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
@@ -37,7 +94,42 @@ axiosInstance.interceptors.response.use(
     return data.data ?? data;
   },
   async (error) => {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
     const status = error.response?.status;
+    const isRefreshRequest = originalRequest?.url?.includes("/users/refresh-token");
+
+    if (status === 401 && originalRequest && !originalRequest._retry && !isRefreshRequest) {
+      originalRequest._retry = true;
+      try {
+        refreshingPromise = refreshingPromise ?? doRefreshToken();
+        const refreshed = await refreshingPromise;
+        const currentState = useAuthStore.getState();
+        if (currentState.user) {
+          currentState.setAuth({
+            token: refreshed.token,
+            refreshToken: refreshed.refreshToken,
+            user: currentState.user,
+            permissions: currentState.permissions,
+            menus: currentState.menus,
+          });
+        }
+        originalRequest.headers = {
+          ...(originalRequest.headers ?? {}),
+          Authorization: `Bearer ${refreshed.token}`,
+        };
+        return axiosInstance(originalRequest);
+      } catch {
+        redirectToLogin();
+        return Promise.reject(error);
+      } finally {
+        refreshingPromise = null;
+      }
+    }
+
+    if (status === 401) {
+      redirectToLogin();
+    }
+
     let backendMessage: string | undefined;
     if (error.response?.data instanceof Blob) {
       try {
@@ -61,7 +153,9 @@ axiosInstance.interceptors.response.use(
       msgMap[status] ??
       error.message ??
       "网络异常";
-    message.error(errMsg);
+    if (!(status === 401 && !isRefreshRequest)) {
+      message.error(errMsg);
+    }
     return Promise.reject(error);
   },
 );

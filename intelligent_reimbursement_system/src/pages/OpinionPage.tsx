@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, Button, List, Tag, Typography, Popconfirm } from "antd";
+import { MessageOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { getOpinions, updateOpinionStatus, type OpinionItem } from "../api/opinion";
 
@@ -44,7 +45,16 @@ export default function OpinionPage() {
   return (
     <div className="w-full flex flex-col flex-1 min-h-0">
       <div className="max-w-3xl w-full mx-auto space-y-6 flex-1 min-h-0">
-        <Card title="所有意见反馈">
+        <Card
+          title={
+            <span className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--color-primary-bg)]">
+                <MessageOutlined className="text-[var(--color-primary)] text-xs" />
+              </div>
+              所有意见反馈
+            </span>
+          }
+        >
           <List
             loading={loading}
             dataSource={opinions}
@@ -53,12 +63,12 @@ export default function OpinionPage() {
               <List.Item>
                 <div className="w-full">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-gray-800">{item.title}</span>
+                    <span className="font-medium text-[var(--text-primary)]">{item.title}</span>
                     <Tag color={statusMap[item.status]?.color}>
                       {statusMap[item.status]?.label}
                     </Tag>
                   </div>
-                  <p className="text-gray-600 text-sm mb-2">{item.content}</p>
+                  <p className="text-[var(--text-secondary)] text-sm mb-2">{item.content}</p>
                   <div className="flex gap-2 mb-2">
                     <Popconfirm
                       title="确认将状态标记为已处理？"
@@ -87,7 +97,7 @@ export default function OpinionPage() {
                       </Button>
                     </Popconfirm>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                  <div className="flex items-center gap-3 text-xs text-[var(--text-tertiary)]">
                     <Text type="secondary">
                       提交人：{item.uid?.real_name ?? item.uid?.username}
                     </Text>

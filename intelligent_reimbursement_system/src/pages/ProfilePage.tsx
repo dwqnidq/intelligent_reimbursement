@@ -9,13 +9,13 @@ import {
   message,
   Divider,
 } from "antd";
-import { UserOutlined, CameraOutlined, LockOutlined } from "@ant-design/icons";
+import { UserOutlined, CameraOutlined, LockOutlined, IdcardOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useAuthStore } from "../store/useAuthStore";
 import { updateAvatar, changePassword } from "../api/user";
 
 export default function ProfilePage() {
-  const { user, setAuth, token, permissions, menus } = useAuthStore();
+  const { user, setAuth, token, refreshToken, permissions, menus } = useAuthStore();
   const [pwdForm] = Form.useForm();
   const [pwdLoading, setPwdLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
@@ -38,9 +38,9 @@ export default function ProfilePage() {
       setAvatarLoading(true);
       try {
         const res = await updateAvatar(file);
-        // 更新 store 里的 avatar
         setAuth({
           token,
+          refreshToken,
           user: { ...user!, avatar: res.avatar },
           permissions,
           menus,
@@ -81,10 +81,13 @@ export default function ProfilePage() {
 
   return (
     <div className="w-full flex flex-col flex-1">
-      <Card className="rounded-2xl shadow-sm w-full flex flex-col flex-1">
-        <h2 className="text-base md:text-lg font-semibold mb-6 text-center">
-          个人信息
-        </h2>
+      <Card className="w-full flex flex-col flex-1">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--color-primary-bg)]">
+            <IdcardOutlined className="text-[var(--color-primary)] text-sm" />
+          </div>
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">个人信息</h2>
+        </div>
 
         <div className="flex flex-col flex-1 items-center">
           <div className="w-full max-w-md">
@@ -92,14 +95,14 @@ export default function ProfilePage() {
             <div className="flex flex-col items-center mb-8">
               <div className="relative inline-block">
                 <Avatar
-                  size={90}
+                  size={96}
                   src={user?.avatar || undefined}
                   icon={!user?.avatar && <UserOutlined />}
-                  className="bg-blue-500"
+                  style={{ background: "var(--color-primary)" }}
                 />
                 <Upload {...uploadProps}>
                   <button
-                    className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center shadow-md transition-colors border-2 border-white"
+                    className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white flex items-center justify-center shadow-md transition-colors border-2 border-white"
                     type="button"
                     disabled={avatarLoading}
                   >
@@ -107,25 +110,25 @@ export default function ProfilePage() {
                   </button>
                 </Upload>
               </div>
-              <p className="text-xs text-gray-400 mt-2">点击相机图标更换头像</p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-2">点击相机图标更换头像</p>
             </div>
 
             {/* 基本信息展示 */}
             <div className="mb-6 space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">昵称</span>
-                <span className="font-medium">{user?.username ?? "-"}</span>
+                <span className="text-[var(--text-secondary)]">昵称</span>
+                <span className="font-medium text-[var(--text-primary)]">{user?.username ?? "-"}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">邮箱</span>
-                <span className="font-medium">{user?.email ?? "-"}</span>
+                <span className="text-[var(--text-secondary)]">邮箱</span>
+                <span className="font-medium text-[var(--text-primary)]">{user?.email ?? "-"}</span>
               </div>
             </div>
 
             <Divider />
 
             {/* 修改密码 */}
-            <p className="text-sm font-medium mb-4 flex items-center gap-2">
+            <p className="text-sm font-medium mb-4 flex items-center gap-2 text-[var(--text-primary)]">
               <LockOutlined />
               修改密码
             </p>
@@ -156,8 +159,9 @@ export default function ProfilePage() {
               </Form.Item>
               <Form.Item className="mb-0">
                 <Button
+                  type="primary"
                   htmlType="submit"
-                  className="w-full"
+                  className="w-full !h-10 !font-semibold"
                   loading={pwdLoading}
                 >
                   修改密码

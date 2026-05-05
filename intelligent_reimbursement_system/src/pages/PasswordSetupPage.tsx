@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Form, Input, Button, message } from "antd";
+import { Form, Input, Button, message } from "antd";
 import { LockOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { setupPassword } from "../api/user";
@@ -9,7 +9,7 @@ export default function PasswordSetupPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { user, setAuth, token, permissions, menus } = useAuthStore();
+  const { user, setAuth, token, refreshToken, permissions, menus } = useAuthStore();
 
   useEffect(() => {
     if (!user) {
@@ -32,6 +32,7 @@ export default function PasswordSetupPage() {
       await setupPassword({ new_password: values.new_password });
       setAuth({
         token,
+        refreshToken,
         user: {
           ...user,
           password_login_enabled: true,
@@ -49,43 +50,83 @@ export default function PasswordSetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <Card className="w-full max-w-md rounded-2xl shadow-sm">
-        <h2 className="text-lg font-semibold text-center mb-2">首次设置登录密码</h2>
-        <p className="text-sm text-gray-400 text-center mb-6">
-          设置后可使用用户名/邮箱 + 密码登录
-        </p>
-        <Form form={form} layout="vertical" onFinish={onFinish}>
-          <Form.Item
-            label="新密码"
-            name="new_password"
-            rules={[
-              { required: true, message: "请输入新密码" },
-              { min: 6, message: "密码至少6位" },
-            ]}
+    <div
+      className="min-h-screen flex items-center justify-center px-4 relative"
+      style={{ background: "linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #f0f9ff 100%)" }}
+    >
+      <div
+        style={{
+          position: "absolute", top: "-100px", right: "-80px",
+          width: "450px", height: "450px", borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(37,99,235,0.15) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute", bottom: "-120px", left: "-100px",
+          width: "500px", height: "500px", borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(37,99,235,0.12) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+
+      <div className="w-full max-w-sm relative" style={{ zIndex: 1 }}>
+        <div className="text-center mb-8">
+          <div
+            className="inline-flex items-center justify-center rounded-2xl mb-5"
+            style={{
+              width: 56, height: 56,
+              background: "#2563eb",
+              boxShadow: "0 8px 30px rgba(37, 99, 235, 0.3)",
+            }}
           >
-            <Input.Password
-              prefix={<LockOutlined className="text-gray-300" />}
-              placeholder="请输入新密码"
-            />
-          </Form.Item>
-          <Form.Item
-            label="确认新密码"
-            name="confirm_password"
-            rules={[{ required: true, message: "请再次输入新密码" }]}
-          >
-            <Input.Password
-              prefix={<LockOutlined className="text-gray-300" />}
-              placeholder="请再次输入新密码"
-            />
-          </Form.Item>
-          <Form.Item className="mb-0">
-            <Button type="primary" htmlType="submit" className="w-full" loading={loading}>
-              保存密码
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
+            <LockOutlined className="text-white text-xl" />
+          </div>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] tracking-tight">
+            首次设置登录密码
+          </h2>
+          <p className="text-sm text-[var(--text-secondary)] mt-2">
+            设置后可使用用户名/邮箱 + 密码登录
+          </p>
+        </div>
+
+        <div
+          className="bg-[var(--bg-card)] rounded-2xl p-8 border border-[var(--border-color)]"
+          style={{ boxShadow: "0 4px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)" }}
+        >
+          <Form form={form} layout="vertical" onFinish={onFinish}>
+            <Form.Item
+              label="新密码"
+              name="new_password"
+              rules={[
+                { required: true, message: "请输入新密码" },
+                { min: 6, message: "密码至少6位" },
+              ]}
+            >
+              <Input.Password
+                prefix={<LockOutlined className="text-[var(--text-tertiary)]" />}
+                placeholder="请输入新密码"
+              />
+            </Form.Item>
+            <Form.Item
+              label="确认新密码"
+              name="confirm_password"
+              rules={[{ required: true, message: "请再次输入新密码" }]}
+            >
+              <Input.Password
+                prefix={<LockOutlined className="text-[var(--text-tertiary)]" />}
+                placeholder="请再次输入新密码"
+              />
+            </Form.Item>
+            <Form.Item className="mb-0">
+              <Button type="primary" htmlType="submit" className="w-full !h-11 !text-[15px] !font-semibold" loading={loading}>
+                保存密码
+              </Button>
+            </Form.Item>
+          </Form>
+        </div>
+      </div>
     </div>
   );
 }

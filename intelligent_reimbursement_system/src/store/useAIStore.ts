@@ -14,13 +14,18 @@ export interface AIReimbursementTypeDraft {
 }
 
 interface AIStore {
-  reimbursementTypeDraft: AIReimbursementTypeDraft | null;
-  setReimbursementTypeDraft: (draft: AIReimbursementTypeDraft) => void;
+  reimbursementTypeDraft: AIReimbursementTypeDraft[] | null;
+  setReimbursementTypeDraft: (
+    draft: AIReimbursementTypeDraft | AIReimbursementTypeDraft[],
+  ) => void;
   clearReimbursementTypeDraft: () => void;
 }
 
 export const useAIStore = create<AIStore>((set) => ({
   reimbursementTypeDraft: null,
-  setReimbursementTypeDraft: (draft) => set({ reimbursementTypeDraft: draft }),
+  setReimbursementTypeDraft: (draft) =>
+    set({
+      reimbursementTypeDraft: Array.isArray(draft) ? draft : [draft],
+    }),
   clearReimbursementTypeDraft: () => set({ reimbursementTypeDraft: null }),
 }));

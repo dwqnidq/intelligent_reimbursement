@@ -13,6 +13,7 @@ export default function SetTokenPage() {
         // 纯 Cookie 模式：依赖浏览器自动携带 access_token
         const res = await http.get<{
           token: string;
+          refreshToken: string;
           user: {
             id: string;
             username: string;
@@ -25,6 +26,7 @@ export default function SetTokenPage() {
         }>("/users/auth/feishu/session");
         setAuth({
           token: res.token ?? "",
+          refreshToken: res.refreshToken ?? "",
           user: res.user,
           permissions: res.permissions,
           menus: res.menus as never,
@@ -44,8 +46,9 @@ export default function SetTokenPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <p className="text-gray-400 text-sm">正在登录，请稍候...</p>
+    <div className="min-h-screen bg-[var(--bg-page)] flex flex-col items-center justify-center gap-3">
+      <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+      <p className="text-[var(--text-secondary)] text-sm">正在登录，请稍候...</p>
     </div>
   );
 }

@@ -61,6 +61,20 @@ interface ExportFieldRow extends ExportFieldPayload {
   _rowKey: string;
 }
 
+interface PendingCreateType {
+  tempId: string;
+  payload: {
+    code: string;
+    label: string;
+    remark?: string;
+    formula?: string;
+    over_limit_threshold?: number;
+    status: 0 | 1;
+    fields: TypeFieldPayload[];
+    export_fields: ExportFieldPayload[];
+  };
+}
+
 const newFieldRow = (): FieldRow => ({
   _rowKey: Date.now().toString() + Math.random(),
   key: "",
@@ -280,6 +294,9 @@ export default function ReimbursementTypeCreate() {
   const [fields, setFields] = useState<FieldRow[]>([]);
   const [exportFields, setExportFields] = useState<ExportFieldRow[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingCreateTypes, setPendingCreateTypes] = useState<PendingCreateType[]>(
+    [],
+  );
 
   const [typeList, setTypeList] = useState<ReimbursementType[]>([]);
   const [typeLoading, setTypeLoading] = useState(false);
@@ -292,6 +309,11 @@ export default function ReimbursementTypeCreate() {
     [],
   );
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [pendingEditTypeId, setPendingEditTypeId] = useState<string | null>(null);
+  const [pendingEditFields, setPendingEditFields] = useState<FieldRow[]>([]);
+  const [pendingEditExportFields, setPendingEditExportFields] = useState<
+    ExportFieldRow[]
+  >([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 1 } }),
@@ -309,31 +331,73 @@ export default function ReimbursementTypeCreate() {
     fetchTypes();
   }, []);
 
-  // 读取 AI 生成的草稿并填入表单
+  const toCreatePayload = (
+    draft: {
+      code: string;
+      label: string;
+      remark?: string;
+      formula?: string;
+      over_limit_threshold?: number;
+      fields: TypeFieldPayload[];
+      export_fields?: ExportFieldPayload[];
+    },
+    enabled = true,
+  ) => ({
+    code: draft.code,
+    label: draft.label,
+    remark: draft.remark,
+    formula: draft.formula || undefined,
+    over_limit_threshold: draft.over_limit_threshold ?? undefined,
+    status: enabled ? (1 as const) : (0 as const),
+    fields: draft.fields,
+    export_fields: draft.export_fields ?? [],
+  });
+
+  // 读取 AI 生成的草稿并填入表单（支持单条/多条），仅渲染到待提交列表，不自动创建
   const { reimbursementTypeDraft, clearReimbursementTypeDraft } = useAIStore();
   useEffect(() => {
     if (!reimbursementTypeDraft) return;
+    const drafts = reimbursementTypeDraft;
+    const payload = drafts.map((d) =>
+      toCreatePayload({
+        code: d.code,
+        label: d.label,
+        formula: d.formula,
+        over_limit_threshold: d.over_limit_threshold,
+        fields: d.fields ?? [],
+        export_fields: d.export_fields ?? [],
+      }),
+    );
+    setPendingCreateTypes((prev) => [
+      ...prev,
+      ...payload.map((p) => ({ tempId: `${Date.now()}-${Math.random()}`, payload: p })),
+    ]);
+    const one = drafts[0];
     form.setFieldsValue({
-      code: reimbursementTypeDraft.code,
-      label: reimbursementTypeDraft.label,
-      formula: reimbursementTypeDraft.formula ?? "",
-      over_limit_threshold: reimbursementTypeDraft.over_limit_threshold,
+      code: one.code,
+      label: one.label,
+      formula: one.formula ?? "",
+      over_limit_threshold: one.over_limit_threshold,
       enabled: true,
     });
     setFields(
-      (reimbursementTypeDraft.fields ?? []).map((f) => ({
+      (one.fields ?? []).map((f) => ({
         ...f,
         options: f.options ?? [],
         _rowKey: Date.now().toString() + Math.random(),
       })),
     );
     setExportFields(
-      (reimbursementTypeDraft.export_fields ?? []).map((f) => ({
+      (one.export_fields ?? []).map((f) => ({
         ...f,
         _rowKey: Date.now().toString() + Math.random(),
       })),
     );
-    message.success("AI 已为您填入报销类型配置，请确认后保存");
+    message.success(
+      drafts.length > 1
+        ? `AI 生成的 ${drafts.length} 个报销类型已加入待提交列表`
+        : "AI 已为您填入报销类型配置，并加入待提交列表",
+    );
     clearReimbursementTypeDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reimbursementTypeDraft]);
@@ -486,7 +550,7 @@ export default function ReimbursementTypeCreate() {
     return true;
   };
 
-  const onFinish = async (values: {
+  const onAddPendingType = async (values: {
     code: string;
     label: string;
     remark?: string;
@@ -494,39 +558,311 @@ export default function ReimbursementTypeCreate() {
     over_limit_threshold?: number;
     enabled: boolean;
   }) => {
-    if (typeList.find((t) => t.code === values.code)) {
+    const code = values.code.trim();
+    const label = values.label.trim();
+    if (typeList.find((t) => t.code === code)) {
       message.warning(`类型标识符「${values.code}」已存在`);
       return;
     }
-    if (typeList.find((t) => t.label === values.label)) {
+    if (typeList.find((t) => t.label === label)) {
       message.warning(`类型名称「${values.label}」已存在`);
+      return;
+    }
+    if (pendingCreateTypes.find((x) => x.payload.code === code)) {
+      message.warning(`待提交列表中已存在类型标识符「${code}」`);
+      return;
+    }
+    if (pendingCreateTypes.find((x) => x.payload.label === label)) {
+      message.warning(`待提交列表中已存在类型名称「${label}」`);
       return;
     }
     if (!validateFields(fields)) return;
     if (!validateExportFields(exportFields)) return;
 
+    setPendingCreateTypes((prev) => [
+      ...prev,
+      {
+        tempId: `${Date.now()}-${Math.random()}`,
+        payload: {
+          code,
+          label,
+          remark: values.remark,
+          formula: values.formula || undefined,
+          over_limit_threshold: values.over_limit_threshold ?? undefined,
+          status: values.enabled ? 1 : 0,
+          fields: fields.map(({ _rowKey, ...rest }) => rest),
+          export_fields: exportFields.map(({ _rowKey, ...rest }) => rest),
+        },
+      },
+    ]);
+    message.success(`已添加「${label}」到待提交列表`);
+    form.resetFields();
+    form.setFieldValue("enabled", true);
+    setFields([]);
+    setExportFields([]);
+  };
+
+  const onBatchCreate = async () => {
+    if (pendingCreateTypes.length === 0) {
+      message.warning("请先添加至少一个报销类型到待提交列表");
+      return;
+    }
     setSubmitting(true);
     try {
-      await createReimbursementType({
-        code: values.code,
-        label: values.label,
-        remark: values.remark,
-        formula: values.formula || undefined,
-        over_limit_threshold: values.over_limit_threshold ?? undefined,
-        status: values.enabled ? 1 : 0,
-        fields: fields.map(({ _rowKey, ...rest }) => rest),
-        export_fields: exportFields.map(({ _rowKey, ...rest }) => rest),
-      });
-      message.success("报销类型创建成功");
-      form.resetFields();
-      setFields([]);
-      setExportFields([]);
+      await createReimbursementType(pendingCreateTypes.map((x) => x.payload));
+      message.success(`成功创建 ${pendingCreateTypes.length} 个报销类型`);
+      setPendingCreateTypes([]);
       fetchTypes();
     } catch {
       // 拦截器统一提示
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const openPendingFieldsEditor = (tempId: string) => {
+    const item = pendingCreateTypes.find((x) => x.tempId === tempId);
+    if (!item) return;
+    setPendingEditTypeId(tempId);
+    setPendingEditFields(
+      (item.payload.fields ?? []).map((f) => ({
+        ...f,
+        options: f.options ?? [],
+        _rowKey: `${Date.now()}-${Math.random()}`,
+      })),
+    );
+    setPendingEditExportFields(
+      (item.payload.export_fields ?? []).map((f) => ({
+        ...f,
+        _rowKey: `${Date.now()}-${Math.random()}`,
+      })),
+    );
+  };
+
+  const updatePendingEditField = (rowKey: string, patch: Partial<FieldRow>) =>
+    setPendingEditFields((prev) =>
+      prev.map((f) => (f._rowKey === rowKey ? { ...f, ...patch } : f)),
+    );
+
+  const addPendingEditOption = (rowKey: string) =>
+    setPendingEditFields((prev) =>
+      prev.map((f) =>
+        f._rowKey === rowKey
+          ? { ...f, options: [...f.options, { label: "", value: "" }] }
+          : f,
+      ),
+    );
+
+  const updatePendingEditOption = (
+    rowKey: string,
+    idx: number,
+    patch: Partial<FieldOption>,
+  ) =>
+    setPendingEditFields((prev) =>
+      prev.map((f) =>
+        f._rowKey === rowKey
+          ? {
+              ...f,
+              options: f.options.map((o, i) =>
+                i === idx ? { ...o, ...patch } : o,
+              ),
+            }
+          : f,
+      ),
+    );
+
+  const removePendingEditOption = (rowKey: string, idx: number) =>
+    setPendingEditFields((prev) =>
+      prev.map((f) =>
+        f._rowKey === rowKey
+          ? { ...f, options: f.options.filter((_, i) => i !== idx) }
+          : f,
+      ),
+    );
+
+  const pendingEditExpandedRowRender = (row: FieldRow) => {
+    if (row.type !== "select") return null;
+    return (
+      <div className="py-2 px-4 bg-[var(--bg-page)] rounded-lg">
+        <p className="text-xs text-[var(--text-secondary)] mb-2">选项配置</p>
+        {row.options.map((opt, idx) => (
+          <div key={idx} className="flex gap-2 mb-2 items-center">
+            <Input
+              size="small"
+              placeholder="选项名称"
+              value={opt.label}
+              onChange={(e) =>
+                updatePendingEditOption(row._rowKey, idx, {
+                  label: e.target.value,
+                })
+              }
+            />
+            <Input
+              size="small"
+              placeholder="选项值"
+              value={opt.value}
+              onChange={(e) =>
+                updatePendingEditOption(row._rowKey, idx, {
+                  value: e.target.value,
+                })
+              }
+            />
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<MinusCircleOutlined />}
+              onClick={() => removePendingEditOption(row._rowKey, idx)}
+            />
+          </div>
+        ))}
+        <Button
+          type="dashed"
+          size="small"
+          icon={<PlusCircleOutlined />}
+          onClick={() => addPendingEditOption(row._rowKey)}
+        >
+          添加选项
+        </Button>
+      </div>
+    );
+  };
+
+  const pendingEditFieldColumns = [
+    {
+      title: "字段标识符",
+      width: 140,
+      render: (_: unknown, row: FieldRow) => (
+        <Input
+          size="small"
+          placeholder="英文，如 itemName"
+          value={row.key}
+          onChange={(e) =>
+            updatePendingEditField(row._rowKey, { key: e.target.value })
+          }
+        />
+      ),
+    },
+    {
+      title: "字段名称",
+      width: 130,
+      render: (_: unknown, row: FieldRow) => (
+        <Input
+          size="small"
+          placeholder="中文展示名"
+          value={row.label}
+          onChange={(e) =>
+            updatePendingEditField(row._rowKey, { label: e.target.value })
+          }
+        />
+      ),
+    },
+    {
+      title: "字段类型",
+      width: 120,
+      render: (_: unknown, row: FieldRow) => (
+        <Select
+          size="small"
+          value={row.type}
+          onChange={(v) =>
+            updatePendingEditField(row._rowKey, { type: v, options: [] })
+          }
+          options={[
+            { label: "文本", value: "text" },
+            { label: "数字", value: "number" },
+            { label: "日期", value: "date" },
+            { label: "下拉", value: "select" },
+            { label: "多行文本", value: "textarea" },
+          ]}
+        />
+      ),
+    },
+    {
+      title: "必填",
+      width: 60,
+      render: (_: unknown, row: FieldRow) => (
+        <Switch
+          size="small"
+          checked={row.required}
+          onChange={(v) => updatePendingEditField(row._rowKey, { required: v })}
+        />
+      ),
+    },
+    {
+      title: "参与计算",
+      width: 70,
+      render: (_: unknown, row: FieldRow) => (
+        <Switch
+          size="small"
+          checked={
+            (row as FieldRow & { is_calculate?: boolean }).is_calculate ?? false
+          }
+          onChange={(v) =>
+            updatePendingEditField(
+              row._rowKey,
+              { is_calculate: v } as Partial<FieldRow>,
+            )
+          }
+        />
+      ),
+    },
+    {
+      title: "排序",
+      width: 80,
+      render: (_: unknown, row: FieldRow) => (
+        <InputNumber
+          size="small"
+          min={0}
+          value={row.sort}
+          onChange={(v) => updatePendingEditField(row._rowKey, { sort: v ?? 0 })}
+        />
+      ),
+    },
+    {
+      title: "操作",
+      width: 60,
+      render: (_: unknown, row: FieldRow) => (
+        <Button
+          type="text"
+          danger
+          size="small"
+          icon={<DeleteOutlined />}
+          onClick={() =>
+            setPendingEditFields((prev) => prev.filter((f) => f._rowKey !== row._rowKey))
+          }
+        />
+      ),
+    },
+  ];
+
+  const savePendingFieldsEditor = () => {
+    if (!pendingEditTypeId) return;
+    if (!validateFields(pendingEditFields)) return;
+    if (!validateExportFields(pendingEditExportFields)) return;
+    updatePendingType(pendingEditTypeId, {
+      fields: pendingEditFields.map(({ _rowKey, ...rest }) => rest),
+      export_fields: pendingEditExportFields.map(({ _rowKey, ...rest }) => rest),
+    });
+    setPendingEditTypeId(null);
+    setPendingEditFields([]);
+    setPendingEditExportFields([]);
+    message.success("字段与导出字段已更新");
+  };
+
+  const updatePendingType = (
+    tempId: string,
+    patch: Partial<PendingCreateType["payload"]>,
+  ) => {
+    setPendingCreateTypes((prev) =>
+      prev.map((item) =>
+        item.tempId === tempId
+          ? {
+              ...item,
+              payload: { ...item.payload, ...patch },
+            }
+          : item,
+      ),
+    );
   };
 
   const onEditFinish = async (values: {
@@ -678,8 +1014,8 @@ export default function ReimbursementTypeCreate() {
   const expandedRowRender = (row: FieldRow) => {
     if (row.type !== "select") return null;
     return (
-      <div className="py-2 px-4 bg-gray-50 rounded-lg">
-        <p className="text-xs text-gray-500 mb-2">选项配置</p>
+      <div className="py-2 px-4 bg-[var(--bg-page)] rounded-lg">
+        <p className="text-xs text-[var(--text-secondary)] mb-2">选项配置</p>
         {row.options.map((opt, idx) => (
           <div key={idx} className="flex gap-2 mb-2 items-center">
             <Input
@@ -841,8 +1177,8 @@ export default function ReimbursementTypeCreate() {
   const editExpandedRowRender = (row: FieldRow) => {
     if (row.type !== "select") return null;
     return (
-      <div className="py-2 px-4 bg-gray-50 rounded-lg">
-        <p className="text-xs text-gray-500 mb-2">选项配置</p>
+      <div className="py-2 px-4 bg-[var(--bg-page)] rounded-lg">
+        <p className="text-xs text-[var(--text-secondary)] mb-2">选项配置</p>
         {row.options.map((opt, idx) => (
           <div key={idx} className="flex gap-2 mb-2 items-center">
             <Input
@@ -885,13 +1221,13 @@ export default function ReimbursementTypeCreate() {
   return (
     <div className="flex flex-col gap-4 w-full">
       {/* 新建表单 */}
-      <Card className="rounded-2xl shadow-sm">
-        <h2 className="text-base font-semibold text-gray-800 mb-4">基本信息</h2>
+      <Card>
+        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">基本信息</h2>
         <Form
           form={form}
           layout="vertical"
           initialValues={{ enabled: true }}
-          onFinish={onFinish}
+          onFinish={onAddPendingType}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
             <Form.Item
@@ -944,7 +1280,7 @@ export default function ReimbursementTypeCreate() {
 
           {/* 字段配置 */}
           <div className="mt-2 mb-6">
-            <p className="text-base font-semibold text-gray-800 mb-3">
+            <p className="text-base font-semibold text-[var(--text-primary)] mb-3">
               字段配置
             </p>
             <div className="overflow-x-auto">
@@ -974,10 +1310,10 @@ export default function ReimbursementTypeCreate() {
 
           {/* 导出字段配置 */}
           <div className="mt-2 mb-6">
-            <p className="text-base font-semibold text-gray-800 mb-1">
+            <p className="text-base font-semibold text-[var(--text-primary)] mb-1">
               导出字段配置
             </p>
-            <p className="text-xs text-gray-400 mb-3">
+            <p className="text-xs text-[var(--text-tertiary)] mb-3">
               配置导出 Excel 时包含的列，可指定参与计算的字段
             </p>
             <ExportFieldTable
@@ -1001,16 +1337,192 @@ export default function ReimbursementTypeCreate() {
 
           <div className="flex gap-3 justify-end mt-2">
             <Button onClick={() => navigate(-1)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={submitting}>
-              保存
+            <Button htmlType="submit">
+              添加到待提交列表
             </Button>
           </div>
         </Form>
+
+        <div className="mt-5 border-t pt-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">
+            新增报销类型组件（{pendingCreateTypes.length}）
+          </h3>
+          {pendingCreateTypes.length === 0 ? (
+            <p className="text-xs text-[var(--text-tertiary)] mb-3">
+              你可以连续添加多个报销类型，这里会同时渲染多个新增组件，最后统一点击”保存全部”。
+            </p>
+          ) : (
+            <div className="space-y-2 mb-3">
+              {pendingCreateTypes.map((item, idx) => (
+                <div
+                  key={item.tempId}
+                  className="rounded-lg border border-[var(--border-color)] px-3 py-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium text-[var(--text-primary)]">
+                      新增类型组件 {idx + 1}
+                    </div>
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={() =>
+                        setPendingCreateTypes((prev) =>
+                          prev.filter((x) => x.tempId !== item.tempId),
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      value={item.payload.code}
+                      placeholder="类型标识符"
+                      onChange={(e) =>
+                        updatePendingType(item.tempId, { code: e.target.value })
+                      }
+                    />
+                    <Input
+                      value={item.payload.label}
+                      placeholder="类型名称"
+                      onChange={(e) =>
+                        updatePendingType(item.tempId, { label: e.target.value })
+                      }
+                    />
+                    <Input
+                      value={item.payload.formula ?? ""}
+                      placeholder="计算公式（选填）"
+                      onChange={(e) =>
+                        updatePendingType(item.tempId, {
+                          formula: e.target.value || undefined,
+                        })
+                      }
+                    />
+                    <InputNumber
+                      className="w-full"
+                      min={0}
+                      placeholder="上限金额（选填）"
+                      value={item.payload.over_limit_threshold}
+                      onChange={(v) =>
+                        updatePendingType(item.tempId, {
+                          over_limit_threshold: v ?? undefined,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      字段 {item.payload.fields.length} 个，导出字段{" "}
+                      {item.payload.export_fields.length} 个
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="small"
+                        onClick={() => openPendingFieldsEditor(item.tempId)}
+                      >
+                        编辑字段与导出字段
+                      </Button>
+                      <Switch
+                        checked={item.payload.status === 1}
+                        checkedChildren="启用"
+                        unCheckedChildren="禁用"
+                        onChange={(v) =>
+                          updatePendingType(item.tempId, { status: v ? 1 : 0 })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button type="primary" loading={submitting} onClick={onBatchCreate}>
+              保存全部
+            </Button>
+          </div>
+        </div>
       </Card>
 
+      <Modal
+        title="编辑新增组件的字段与导出字段"
+        open={!!pendingEditTypeId}
+        onCancel={() => {
+          setPendingEditTypeId(null);
+          setPendingEditFields([]);
+          setPendingEditExportFields([]);
+        }}
+        footer={null}
+        width={920}
+      >
+        <div className="mb-6">
+          <p className="text-sm font-medium text-[var(--text-primary)] mb-3">字段配置</p>
+          <Table
+            dataSource={pendingEditFields}
+            rowKey="_rowKey"
+            columns={pendingEditFieldColumns}
+            pagination={false}
+            size="small"
+            expandable={{
+              expandedRowRender: pendingEditExpandedRowRender,
+              rowExpandable: (row) => row.type === "select",
+              showExpandColumn: true,
+            }}
+            locale={{ emptyText: "暂无字段，点击下方按钮添加" }}
+          />
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            className="w-full mt-3"
+            onClick={() => setPendingEditFields((p) => [...p, newFieldRow()])}
+          >
+            添加字段
+          </Button>
+        </div>
+
+        <div className="mb-6">
+          <p className="text-sm font-medium text-[var(--text-primary)] mb-1">导出字段配置</p>
+          <p className="text-xs text-[var(--text-tertiary)] mb-3">
+            配置导出 Excel 时包含的列，可指定参与计算的字段
+          </p>
+          <ExportFieldTable
+            exportFields={pendingEditExportFields}
+            setExportFields={setPendingEditExportFields}
+            numberFields={[
+              ...pendingEditFields
+                .filter((f) => f.type === "number")
+                .map((f) => ({ key: f.key, label: f.label })),
+              ...pendingEditExportFields
+                .filter(
+                  (f) =>
+                    f.formula &&
+                    (f as ExportFieldRow & { calc_fields?: string[] }).calc_fields
+                      ?.length,
+                )
+                .map((f) => ({ key: f.key, label: f.label })),
+            ]}
+          />
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <Button
+            onClick={() => {
+              setPendingEditTypeId(null);
+              setPendingEditFields([]);
+              setPendingEditExportFields([]);
+            }}
+          >
+            取消
+          </Button>
+          <Button type="primary" onClick={savePendingFieldsEditor}>
+            保存字段配置
+          </Button>
+        </div>
+      </Modal>
+
       {/* 已有类型列表 */}
-      <Card className="rounded-2xl shadow-sm">
-        <h2 className="text-base font-semibold text-gray-800 mb-4">
+      <Card>
+        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">
           已有报销类型
         </h2>
         <Table
@@ -1103,7 +1615,7 @@ export default function ReimbursementTypeCreate() {
               </Descriptions.Item>
             </Descriptions>
 
-            <p className="text-sm font-medium text-gray-600 mb-2">
+            <p className="text-sm font-medium text-[var(--text-secondary)] mb-2">
               字段配置（{detailType.fields?.length ?? 0} 个）
             </p>
             <Table
@@ -1152,7 +1664,7 @@ export default function ReimbursementTypeCreate() {
               const ef = detailType.export_fields ?? [];
               return ef.length > 0 ? (
                 <>
-                  <p className="text-sm font-medium text-gray-600 mb-2">
+                  <p className="text-sm font-medium text-[var(--text-secondary)] mb-2">
                     导出字段配置（{ef.length} 个）
                   </p>
                   <Table
@@ -1182,7 +1694,7 @@ export default function ReimbursementTypeCreate() {
                   />
                 </>
               ) : (
-                <p className="text-xs text-gray-400 mt-2">暂无导出字段配置</p>
+                <p className="text-xs text-[var(--text-tertiary)] mt-2">暂无导出字段配置</p>
               );
             })()}
           </>
@@ -1191,6 +1703,7 @@ export default function ReimbursementTypeCreate() {
 
       {/* 编辑弹窗 */}
       <Modal
+
         title={`修改报销类型 · ${editType?.label ?? ""}`}
         open={!!editType}
         onCancel={() => {
@@ -1246,7 +1759,7 @@ export default function ReimbursementTypeCreate() {
 
             {/* 字段配置（拖拽） */}
             <div className="mb-6">
-              <p className="text-sm font-medium text-gray-700 mb-3">字段配置</p>
+              <p className="text-sm font-medium text-[var(--text-primary)] mb-3">字段配置</p>
               <div className="overflow-x-auto">
                 <DndContext
                   sensors={sensors}
