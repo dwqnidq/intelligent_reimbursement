@@ -2,27 +2,23 @@
 import grpc
 import logging
 from concurrent import futures
-import sys
-import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
-from generated import graph_service_pb2, graph_service_pb2_grpc
-from graph.main_graph import main_graph, stream_graph
-from config import SERVER_HOST, SERVER_PORT, MAX_WORKERS
+from reimbursement_langgraph.generated import graph_service_pb2, graph_service_pb2_grpc
+from reimbursement_langgraph.graph import main_graph
+from reimbursement_langgraph.stream import stream_graph
+from reimbursement_langgraph.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
     """GraphService 实现"""
-    
+
     def ExecuteGraph(self, request, context):
         """执行图的同步方法"""
         try:
             logger.info("收到请求: %s", request.input)
-            
+
             # 准备初始状态
             files = list(request.files) if hasattr(request, 'files') and request.files else []
             initial_state = {
@@ -35,7 +31,7 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
                 "node": "",
                 "result": None,
             }
-            
+
             # 执行图
             result = main_graph.invoke(initial_state)
 
@@ -61,12 +57,16 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
                 success=False,
                 error=str(e)
             )
-    
+
     def StreamExecuteGraph(self, request, context):
         """流式执行图，逐 token 推送"""
         try:
-            logger.info("收到流式请求: %s", request.input)
             files = list(request.files) if hasattr(request, 'files') and request.files else []
+            logger.info(
+                "收到流式请求 input 前缀=%s | files 数量=%d",
+                (request.input or "")[:80],
+                len(files),
+            )
             config = dict(request.config) if hasattr(request, 'config') and request.config else {}
             is_admin = config.get('is_admin', 'false').lower() == 'true'
 
@@ -93,9 +93,9 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
             context.set_details(str(e))
 
 
-def serve(port: int = SERVER_PORT, host: str = SERVER_HOST) -> None:
+def serve(port: int = settings.SERVER_PORT, host: str = settings.SERVER_HOST) -> None:
     """启动 gRPC 服务器"""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=MAX_WORKERS))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=settings.MAX_WORKERS))
     graph_service_pb2_grpc.add_GraphServiceServicer_to_server(
         GraphServiceServicer(), server
     )

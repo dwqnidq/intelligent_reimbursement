@@ -3,4 +3,4 @@ __pycache__
 *.pyc
 .env
 *.log
-src/generated/
+src/reimbursement_langgraph/generated/
