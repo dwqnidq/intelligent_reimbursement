@@ -1,9 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
 // ──── Snapshot approver info (pure data, no ObjectId) ────
 @Schema({ _id: false })
 export class ApproverInfo {
+  @Prop({ required: true })
+  approver_id: string;
+
   @Prop({ required: true })
   name: string;
 
@@ -24,23 +27,24 @@ export class SnapshotNode {
   @Prop({ required: true })
   node_id: string;
 
-  @Prop({ required: true })
-  name: string;
-
   @Prop({ required: true, enum: ['countersign', 'orsign'] })
   sign_type: string;
 
-  @Prop({ type: ApproverInfoSchema, required: true })
-  approver: ApproverInfo;
+  @Prop({ type: [ApproverInfoSchema], default: [] })
+  approvers: ApproverInfo[];
+
+  @Prop({ type: [String], default: [] })
+  approved_by: string[];
+
+  // { originalApproverName: transferredToName }
+  @Prop({ type: Object, default: {} })
+  transfers: Record<string, string>;
 }
 export const SnapshotNodeSchema = SchemaFactory.createForClass(SnapshotNode);
 
 // ──── Flow snapshot ────
 @Schema({ _id: false })
 export class FlowSnapshot {
-  @Prop({ required: true })
-  name: string;
-
   @Prop({ type: [SnapshotNodeSchema], required: true })
   nodes: SnapshotNode[];
 }
@@ -55,7 +59,7 @@ export class ApprovalAction {
   @Prop({ required: true })
   approver_name: string;
 
-  @Prop({ required: true, enum: ['approve', 'reject'] })
+  @Prop({ required: true, enum: ['approve', 'reject', 'transfer'] })
   action: string;
 
   @Prop()
@@ -63,14 +67,17 @@ export class ApprovalAction {
 
   @Prop({ required: true })
   acted_at: Date;
+
+  @Prop()
+  transferred_to_name: string;
 }
 export const ApprovalActionSchema = SchemaFactory.createForClass(ApprovalAction);
 
 // ──── Main record ────
-@Schema({ timestamps: true, collection: 'approval_record' })
+@Schema({ timestamps: true, collection: 'approval_records', versionKey: false })
 export class ApprovalRecord extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Reimbursement', required: true })
-  record_id: Types.ObjectId;
+  @Prop({ type: String, required: true })
+  record_id: string;
 
   @Prop({ type: FlowSnapshotSchema, required: true })
   flow_snapshot: FlowSnapshot;

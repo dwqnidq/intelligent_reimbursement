@@ -1,13 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true, collection: 'reimbursement_record' })
+@Schema({ timestamps: true, collection: 'reimbursements_records', versionKey: false })
 export class Reimbursement extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  applicant: Types.ObjectId;
+  @Prop({ required: true, index: true })
+  submission_batch_id: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'ReimbursementType', required: true })
-  category: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  applicant: string;
+
+  @Prop({ type: String, ref: 'ReimbursementType', required: true })
+  category: string;
 
   @Prop()
   category_name: string;
@@ -18,8 +21,8 @@ export class Reimbursement extends Document {
   @Prop({ type: Object, required: true })
   detail: Record<string, any>;
 
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'File' }] })
-  attachments: Types.ObjectId[];
+  @Prop({ type: [String], ref: 'File', default: [] })
+  attachments: string[];
 
   @Prop({
     default: 'pending',
@@ -27,8 +30,8 @@ export class Reimbursement extends Document {
   })
   status: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  approver: Types.ObjectId;
+  @Prop({ type: String, ref: 'User' })
+  approver: string;
 
   @Prop()
   approved_at: string;
@@ -41,6 +44,9 @@ export class Reimbursement extends Document {
 
   @Prop({ default: false })
   is_over_limit: boolean;
+
+  @Prop({ default: false })
+  has_approval_flow: boolean;
 }
 
 export const ReimbursementSchema = SchemaFactory.createForClass(Reimbursement);

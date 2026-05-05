@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { Opinion } from '../../schemas/opinion.schema';
 import { User } from '../../schemas/user.schema';
 import { CreateOpinionDto } from './dto/create-opinion.dto';
@@ -13,7 +13,7 @@ export class OpinionService {
   ) {}
 
   async create(uid: string, dto: CreateOpinionDto) {
-    return this.opinionModel.create({ uid: new Types.ObjectId(uid), ...dto });
+    return this.opinionModel.create({ uid, ...dto });
   }
 
   async findAll() {
@@ -25,7 +25,7 @@ export class OpinionService {
 
   async findMine(userId: string) {
     return this.opinionModel
-      .find({ uid: new Types.ObjectId(userId) })
+      .find({ uid: userId })
       .populate('uid', 'username real_name')
       .sort({ createdAt: -1 });
   }
@@ -42,7 +42,7 @@ export class OpinionService {
   async updateStatus(userId: string, id: string, status: number) {
     await this.assertCanManageOpinions(userId);
     const updated = await this.opinionModel
-      .findByIdAndUpdate(id, { $set: { status } }, { new: true })
+      .findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' })
       .populate('uid', 'username real_name');
     if (!updated) throw new NotFoundException('意见反馈不存在');
     return updated;

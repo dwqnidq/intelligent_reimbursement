@@ -50,7 +50,7 @@ export class ExportField {
 
 export const ExportFieldSchema = SchemaFactory.createForClass(ExportField);
 
-@Schema({ timestamps: true, collection: 'reimbursement_types' })
+@Schema({ timestamps: true, collection: 'reimbursement_types', versionKey: false })
 export class ReimbursementType extends Document {
   @Prop({ required: true, unique: true })
   code: string;

@@ -1,0 +1,2462 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/users/auth/feishu": {
+      "get": {
+        "operationId": "UserController_feishuCallback",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "summary": "飞书OAuth回调",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/auth/feishu/session": {
+      "get": {
+        "operationId": "UserController_feishuSession",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "summary": "飞书登录获取用户信息",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users": {
+      "post": {
+        "operationId": "UserController_register",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "summary": "用户注册",
+        "tags": [
+          "用户"
+        ]
+      },
+      "get": {
+        "operationId": "UserController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取用户列表",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/login": {
+      "post": {
+        "operationId": "UserController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "summary": "用户登录",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/refresh-token": {
+      "post": {
+        "operationId": "UserController_refreshToken",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "summary": "刷新访问令牌",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/profile": {
+      "get": {
+        "operationId": "UserController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取当前登录用户信息",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/password": {
+      "patch": {
+        "operationId": "UserController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改密码",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/password/setup": {
+      "patch": {
+        "operationId": "UserController_setPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "首次设置密码",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/{id}/roles": {
+      "patch": {
+        "operationId": "UserController_assignRoles",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分配角色给用户",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/users/avatar": {
+      "patch": {
+        "operationId": "UserController_updateAvatar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "上传头像",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/api/files/upload": {
+      "post": {
+        "operationId": "FileController_upload",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "avatar",
+                      "attachment"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "上传文件",
+        "tags": [
+          "文件"
+        ]
+      }
+    },
+    "/api/reimbursements/export": {
+      "get": {
+        "operationId": "ReimbursementController_exportExcel",
+        "parameters": [
+          {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "description": "报销类型 code，支持逗号分隔多个，如 purchase,travel",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "max_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "size",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "导出报销Excel",
+        "tags": [
+          "报销"
+        ]
+      }
+    },
+    "/api/reimbursements": {
+      "get": {
+        "operationId": "ReimbursementController_findAll",
+        "parameters": [
+          {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "description": "报销类型 code，支持逗号分隔多个，如 purchase,travel",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "max_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "size",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取报销列表",
+        "tags": [
+          "报销"
+        ]
+      },
+      "post": {
+        "description": "请求体为 JSON 数组；数组每一项包含 applicant_name、category、apply_date、attachments、details。每个元素内的 details 数组中每一条写入一条报销记录。",
+        "operationId": "ReimbursementController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateReimbursementDto"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "提交报销申请",
+        "tags": [
+          "报销"
+        ]
+      }
+    },
+    "/api/reimbursements/tree": {
+      "get": {
+        "operationId": "ReimbursementController_findTree",
+        "parameters": [
+          {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "description": "报销类型 code，支持逗号分隔多个，如 purchase,travel",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "max_amount",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "start_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "size",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取报销树形列表",
+        "tags": [
+          "报销"
+        ]
+      }
+    },
+    "/api/reimbursements/{id}": {
+      "patch": {
+        "operationId": "ReimbursementController_updateStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveReimbursementDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新报销状态",
+        "tags": [
+          "报销"
+        ]
+      }
+    },
+    "/api/approvals/mine": {
+      "get": {
+        "operationId": "ApprovalRecordController_findMyPending",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "我的待审批列表",
+        "tags": [
+          "审批"
+        ]
+      }
+    },
+    "/api/approvals/record/{reimbursementId}": {
+      "get": {
+        "operationId": "ApprovalRecordController_findByReimbursementId",
+        "parameters": [
+          {
+            "name": "reimbursementId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取审批记录",
+        "tags": [
+          "审批"
+        ]
+      }
+    },
+    "/api/approvals/{id}/approve": {
+      "post": {
+        "operationId": "ApprovalRecordController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "审批通过",
+        "tags": [
+          "审批"
+        ]
+      }
+    },
+    "/api/approvals/{id}/reject": {
+      "post": {
+        "operationId": "ApprovalRecordController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "审批驳回",
+        "tags": [
+          "审批"
+        ]
+      }
+    },
+    "/api/approvals/{id}/transfer": {
+      "post": {
+        "operationId": "ApprovalRecordController_transfer",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "转审",
+        "tags": [
+          "审批"
+        ]
+      }
+    },
+    "/api/reimbursement-types": {
+      "get": {
+        "operationId": "ReimbursementTypeController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取报销类型列表",
+        "tags": [
+          "报销类型"
+        ]
+      },
+      "post": {
+        "operationId": "ReimbursementTypeController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建报销类型",
+        "tags": [
+          "报销类型"
+        ]
+      }
+    },
+    "/api/reimbursement-types/{id}": {
+      "put": {
+        "operationId": "ReimbursementTypeController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReimbursementTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新报销类型",
+        "tags": [
+          "报销类型"
+        ]
+      },
+      "delete": {
+        "operationId": "ReimbursementTypeController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除报销类型",
+        "tags": [
+          "报销类型"
+        ]
+      }
+    },
+    "/api/ai/chat": {
+      "post": {
+        "operationId": "AiController_chat",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "AI 流式对话（SSE）",
+        "tags": [
+          "AI助手"
+        ]
+      }
+    },
+    "/api/v1/opinions": {
+      "post": {
+        "operationId": "OpinionController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOpinionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "提交意见反馈",
+        "tags": [
+          "意见反馈"
+        ]
+      },
+      "get": {
+        "operationId": "OpinionController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取所有意见反馈（管理员）",
+        "tags": [
+          "意见反馈"
+        ]
+      }
+    },
+    "/api/v1/opinions/mine": {
+      "get": {
+        "operationId": "OpinionController_findMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取我的意见反馈",
+        "tags": [
+          "意见反馈"
+        ]
+      }
+    },
+    "/api/v1/opinions/{id}/status": {
+      "patch": {
+        "operationId": "OpinionController_updateStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOpinionStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改反馈状态",
+        "tags": [
+          "意见反馈"
+        ]
+      }
+    },
+    "/api/departments": {
+      "get": {
+        "operationId": "DepartmentController_findAll",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取部门列表",
+        "tags": [
+          "部门"
+        ]
+      },
+      "post": {
+        "operationId": "DepartmentController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDepartmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建部门",
+        "tags": [
+          "部门"
+        ]
+      }
+    },
+    "/api/departments/{id}": {
+      "put": {
+        "operationId": "DepartmentController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDepartmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新部门",
+        "tags": [
+          "部门"
+        ]
+      },
+      "delete": {
+        "operationId": "DepartmentController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除部门",
+        "tags": [
+          "部门"
+        ]
+      }
+    },
+    "/api/employees": {
+      "get": {
+        "operationId": "EmployeeController_findAll",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dept_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_size",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取员工列表",
+        "tags": [
+          "员工"
+        ]
+      },
+      "post": {
+        "operationId": "EmployeeController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmployeeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建员工",
+        "tags": [
+          "员工"
+        ]
+      }
+    },
+    "/api/employees/{id}": {
+      "put": {
+        "operationId": "EmployeeController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEmployeeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新员工",
+        "tags": [
+          "员工"
+        ]
+      },
+      "delete": {
+        "operationId": "EmployeeController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除员工",
+        "tags": [
+          "员工"
+        ]
+      }
+    },
+    "/api/approval-flows": {
+      "get": {
+        "operationId": "ApprovalFlowController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取审批流列表",
+        "tags": [
+          "审批流"
+        ]
+      },
+      "post": {
+        "operationId": "ApprovalFlowController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApprovalFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建审批流",
+        "tags": [
+          "审批流"
+        ]
+      }
+    },
+    "/api/approval-flows/{id}": {
+      "get": {
+        "operationId": "ApprovalFlowController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取审批流详情",
+        "tags": [
+          "审批流"
+        ]
+      },
+      "put": {
+        "operationId": "ApprovalFlowController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApprovalFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新审批流",
+        "tags": [
+          "审批流"
+        ]
+      },
+      "delete": {
+        "operationId": "ApprovalFlowController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除审批流",
+        "tags": [
+          "审批流"
+        ]
+      }
+    },
+    "/api/approval-flows/{id}/toggle": {
+      "patch": {
+        "operationId": "ApprovalFlowController_toggle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "开启/关闭审批流",
+        "tags": [
+          "审批流"
+        ]
+      }
+    },
+    "/api/approval-flows/reorder": {
+      "post": {
+        "operationId": "ApprovalFlowController_reorder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "审批流排序",
+        "tags": [
+          "审批流"
+        ]
+      }
+    },
+    "/api/roles": {
+      "get": {
+        "operationId": "RoleController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取所有角色",
+        "tags": [
+          "角色"
+        ]
+      },
+      "post": {
+        "operationId": "RoleController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建角色",
+        "tags": [
+          "角色"
+        ]
+      }
+    },
+    "/api/roles/{id}": {
+      "get": {
+        "operationId": "RoleController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取单个角色",
+        "tags": [
+          "角色"
+        ]
+      },
+      "put": {
+        "operationId": "RoleController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新角色",
+        "tags": [
+          "角色"
+        ]
+      },
+      "delete": {
+        "operationId": "RoleController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除角色",
+        "tags": [
+          "角色"
+        ]
+      }
+    },
+    "/api/roles/{id}/permissions": {
+      "put": {
+        "operationId": "RoleController_assignPermissions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分配权限给角色",
+        "tags": [
+          "角色"
+        ]
+      }
+    },
+    "/api/roles/{id}/menus": {
+      "put": {
+        "operationId": "RoleController_assignMenus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分配菜单给角色",
+        "tags": [
+          "角色"
+        ]
+      }
+    },
+    "/api/permissions": {
+      "get": {
+        "operationId": "PermissionController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取所有权限",
+        "tags": [
+          "权限"
+        ]
+      }
+    },
+    "/api/menus": {
+      "get": {
+        "operationId": "MenuController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取菜单树",
+        "tags": [
+          "菜单"
+        ]
+      },
+      "post": {
+        "operationId": "MenuController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMenuDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建菜单",
+        "tags": [
+          "菜单"
+        ]
+      }
+    },
+    "/api/menus/flat": {
+      "get": {
+        "operationId": "MenuController_findAllFlat",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取菜单列表（平铺）",
+        "tags": [
+          "菜单"
+        ]
+      }
+    },
+    "/api/menus/{id}": {
+      "get": {
+        "operationId": "MenuController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取单个菜单",
+        "tags": [
+          "菜单"
+        ]
+      },
+      "put": {
+        "operationId": "MenuController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMenuDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新菜单",
+        "tags": [
+          "菜单"
+        ]
+      },
+      "delete": {
+        "operationId": "MenuController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除菜单",
+        "tags": [
+          "菜单"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "智能报销系统 API",
+    "description": "",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "real_name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password",
+          "email",
+          "real_name"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "用户名、手机号或邮箱"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新令牌"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "old_password": {
+            "type": "string",
+            "description": "旧密码"
+          },
+          "new_password": {
+            "type": "string",
+            "description": "新密码，至少6位"
+          }
+        },
+        "required": [
+          "old_password",
+          "new_password"
+        ]
+      },
+      "SetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "new_password": {
+            "type": "string",
+            "description": "新密码，至少6位"
+          }
+        },
+        "required": [
+          "new_password"
+        ]
+      },
+      "CreateReimbursementDto": {
+        "type": "object",
+        "properties": {
+          "applicant_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "details": {
+            "type": "array",
+            "description": "每条报销明细一条记录，对应前端一行表单；至少 1 条",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "apply_date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "applicant_name",
+          "category",
+          "details",
+          "apply_date"
+        ]
+      },
+      "ApproveReimbursementDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected",
+              "withdrawn"
+            ]
+          },
+          "reject_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateReimbursementTypeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "export_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "formula": {
+            "type": "string"
+          },
+          "remark": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "over_limit_threshold": {
+            "type": "number"
+          }
+        }
+      },
+      "ChatDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "用户消息内容",
+            "example": "帮我分析本月报销数据"
+          },
+          "files": {
+            "description": "附件文件 URL 数组",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "CreateOpinionDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "标题"
+          },
+          "content": {
+            "type": "string",
+            "description": "意见内容"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ]
+      },
+      "UpdateOpinionStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "number",
+            "description": "状态：0待处理 1已处理 2已关闭",
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "CreateDepartmentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "manager_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "sort": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "code"
+        ]
+      },
+      "UpdateDepartmentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "manager_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "sort": {
+            "type": "number"
+          }
+        }
+      },
+      "CreateEmployeeDto": {
+        "type": "object",
+        "properties": {
+          "employee_no": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "number"
+          },
+          "dept_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "employee_no",
+          "name",
+          "gender"
+        ]
+      },
+      "UpdateEmployeeDto": {
+        "type": "object",
+        "properties": {
+          "employee_no": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "number"
+          },
+          "dept_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          }
+        }
+      },
+      "ApprovalNodeDto": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string"
+          },
+          "approver_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sign_type": {
+            "type": "string",
+            "enum": [
+              "countersign",
+              "orsign"
+            ]
+          },
+          "sort": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "node_id",
+          "approver_ids",
+          "sign_type",
+          "sort"
+        ]
+      },
+      "CreateApprovalFlowDto": {
+        "type": "object",
+        "properties": {
+          "type_code": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalNodeDto"
+            }
+          },
+          "amount_min": {
+            "type": "number"
+          },
+          "amount_max": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "type_code",
+          "nodes"
+        ]
+      },
+      "UpdateApprovalFlowDto": {
+        "type": "object",
+        "properties": {
+          "type_code": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalNodeDto"
+            }
+          },
+          "amount_min": {
+            "type": "number"
+          },
+          "amount_max": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "number"
+          }
+        }
+      },
+      "CreateRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "menus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ]
+      },
+      "UpdateRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "menus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateMenuDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "directory",
+              "menu",
+              "button"
+            ]
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "visible": {
+            "type": "number"
+          },
+          "status": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ]
+      },
+      "UpdateMenuDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "directory",
+              "menu",
+              "button"
+            ]
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "visible": {
+            "type": "number"
+          },
+          "status": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

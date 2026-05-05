@@ -1,8 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, versionKey: false })
 export class User extends Document {
   @Prop({ required: true, unique: true, trim: true })
   username: string;
@@ -28,8 +28,8 @@ export class User extends Document {
   @Prop({ default: 1, enum: [0, 1] })
   status: number;
 
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Role' }] })
-  roles: Types.ObjectId[];
+  @Prop({ type: [String], ref: 'Role', default: [] })
+  roles: string[];
 
   @Prop({ default: 'local', enum: ['local', 'feishu'] })
   auth_provider: 'local' | 'feishu';

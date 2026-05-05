@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, versionKey: false })
 export class Role extends Document {
   @Prop({ required: true, unique: true })
   name: string;
@@ -15,11 +15,11 @@ export class Role extends Document {
   @Prop({ default: 1, enum: [0, 1] })
   status: number;
 
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Permission' }] })
-  permissions: Types.ObjectId[];
+  @Prop({ type: [String], ref: 'Permission', default: [] })
+  permissions: string[];
 
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Menu' }] })
-  menus: Types.ObjectId[];
+  @Prop({ type: [String], ref: 'Menu', default: [] })
+  menus: string[];
 }
 
 export const RoleSchema = SchemaFactory.createForClass(Role);

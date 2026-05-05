@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true, collection: 'department' })
+@Schema({ timestamps: true, collection: 'department', versionKey: false })
 export class Department extends Document {
   @Prop({ required: true, unique: true })
   name: string;
@@ -9,8 +9,8 @@ export class Department extends Document {
   @Prop({ required: true, unique: true })
   code: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Employee' })
-  manager_id: Types.ObjectId;
+  @Prop({ type: String, ref: 'Employee' })
+  manager_id: string;
 
   @Prop()
   description: string;

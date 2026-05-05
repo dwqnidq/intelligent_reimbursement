@@ -14,6 +14,9 @@ import { DepartmentModule } from './modules/department/department.module';
 import { EmployeeModule } from './modules/employee/employee.module';
 import { ApprovalFlowModule } from './modules/approval-flow/approval-flow.module';
 import { ApprovalRecordModule } from './modules/approval-record/approval-record.module';
+import { RoleModule } from './modules/role/role.module';
+import { PermissionModule } from './modules/permission/permission.module';
+import { MenuModule } from './modules/menu/menu.module';
 
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { ApprovalRecordModule } from './modules/approval-record/approval-record.
     EmployeeModule,
     ApprovalFlowModule,
     ApprovalRecordModule,
+    RoleModule,
+    PermissionModule,
+    MenuModule,
   ],
 })
 export class AppModule {}

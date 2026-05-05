@@ -1,13 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true, collection: 'feishuusers' })
+@Schema({ timestamps: true, collection: 'feishu_users', versionKey: false })
 export class FeishuUser extends Document {
   @Prop({ required: true, unique: true })
-  openId: string;
+  open_id: string;
 
   @Prop()
-  unionId: string;
+  union_id: string;
 
   @Prop()
   name: string;
@@ -21,8 +21,8 @@ export class FeishuUser extends Document {
   @Prop()
   avatar_url: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  uid: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  uid: string;
 }
 
 export const FeishuUserSchema = SchemaFactory.createForClass(FeishuUser);

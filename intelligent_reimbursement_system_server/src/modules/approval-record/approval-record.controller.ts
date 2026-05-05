@@ -24,6 +24,18 @@ export class ApprovalRecordController {
     return this.service.findMyPending(userId);
   }
 
+  @ApiOperation({ summary: '我的审批历史' })
+  @Get('history')
+  findMyHistory(@CurrentUser('id') userId: string) {
+    return this.service.findMyHistory(userId);
+  }
+
+  @ApiOperation({ summary: '根据报销单ID获取审批记录' })
+  @Get('record/:reimbursementId')
+  findByReimbursementId(@Param('reimbursementId') reimbursementId: string) {
+    return this.service.findByReimbursementId(reimbursementId);
+  }
+
   @ApiOperation({ summary: '审批通过' })
   @Post(':id/approve')
   approve(
@@ -42,5 +54,16 @@ export class ApprovalRecordController {
     @Body('comment') comment?: string,
   ) {
     return this.service.reject(id, userId, comment);
+  }
+
+  @ApiOperation({ summary: '转审' })
+  @Post(':id/transfer')
+  transfer(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body('target_employee_id') targetEmployeeId: string,
+    @Body('comment') comment?: string,
+  ) {
+    return this.service.transfer(id, userId, targetEmployeeId, comment);
   }
 }

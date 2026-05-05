@@ -7,13 +7,10 @@ export class ApprovalNodeDto {
   @IsString()
   node_id: string;
 
-  @ApiProperty()
-  @IsString()
-  name: string;
-
-  @ApiProperty()
-  @IsString()
-  approver_id: string;
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  approver_ids: string[];
 
   @ApiProperty({ enum: ['countersign', 'orsign'] })
   @IsString()
@@ -25,10 +22,6 @@ export class ApprovalNodeDto {
 }
 
 export class CreateApprovalFlowDto {
-  @ApiProperty()
-  @IsString()
-  name: string;
-
   @ApiProperty()
   @IsString()
   type_code: string;
@@ -43,4 +36,19 @@ export class CreateApprovalFlowDto {
   @ValidateNested({ each: true })
   @Type(() => ApprovalNodeDto)
   nodes: ApprovalNodeDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  amount_min?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  amount_max?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  priority?: number;
 }

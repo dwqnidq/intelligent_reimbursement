@@ -34,7 +34,7 @@ export class ReimbursementTypeController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() dto: CreateReimbursementTypeDto) {
+  create(@Body() dto: CreateReimbursementTypeDto | CreateReimbursementTypeDto[]) {
     return this.service.create(dto);
   }
 

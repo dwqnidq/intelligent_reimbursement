@@ -8,9 +8,10 @@ import {
   Query,
   UseGuards,
   Res,
+  ParseArrayPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { ReimbursementService } from './reimbursement.service';
 import { CreateReimbursementDto } from './dto/create-reimbursement.dto';
 import { ApproveReimbursementDto } from './dto/approve-reimbursement.dto';
@@ -54,13 +55,36 @@ export class ReimbursementController {
     return this.service.getList(userId, query);
   }
 
-  @ApiOperation({ summary: '提交报销申请' })
+  @ApiOperation({
+    summary:
+      '获取报销单树形列表（按 submission_batch_id 分组），支持筛选和分页，管理员可见全部',
+  })
+  @Get('tree')
+  findTree(
+    @CurrentUser('id') userId: string,
+    @Query() query: SearchReimbursementDto,
+  ): Promise<unknown> {
+    return this.service.getTreeList(userId, query);
+  }
+
+  @ApiOperation({
+    summary: '提交报销申请',
+    description:
+      '请求体为 JSON 数组；数组每一项包含 applicant_name、category、apply_date、attachments、details。每个元素内的 details 数组中每一条写入一条报销记录。',
+  })
+  @ApiBody({ type: CreateReimbursementDto, isArray: true })
   @Post()
   create(
     @CurrentUser('id') userId: string,
-    @Body() dto: CreateReimbursementDto,
+    @Body(
+      new ParseArrayPipe({
+        items: CreateReimbursementDto,
+        whitelist: true,
+      }),
+    )
+    dtos: CreateReimbursementDto[],
   ) {
-    return this.service.create(userId, dto);
+    return this.service.createBatch(userId, dtos);
   }
 
   @ApiOperation({

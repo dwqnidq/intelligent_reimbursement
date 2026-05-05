@@ -6,7 +6,9 @@ import { User, UserSchema } from '../../schemas/user.schema';
 import { Role, RoleSchema } from '../../schemas/role.schema';
 import { Permission, PermissionSchema } from '../../schemas/permission.schema';
 import { Menu, MenuSchema } from '../../schemas/menu.schema';
-import { FeishuUser, FeishuUserSchema } from '../../schemas/feishu-user.schema';
+import { FeishuUser, FeishuUserSchema } from '../../schemas/feishu_user.schema';
+import { Employee, EmployeeSchema } from '../../schemas/employee.schema';
+import { Department, DepartmentSchema } from '../../schemas/department.schema';
 import { AuthModule } from '../auth/auth.module';
 import { FileModule } from '../file/file.module';
 
@@ -18,6 +20,8 @@ import { FileModule } from '../file/file.module';
       { name: Permission.name, schema: PermissionSchema },
       { name: Menu.name, schema: MenuSchema },
       { name: FeishuUser.name, schema: FeishuUserSchema },
+      { name: Employee.name, schema: EmployeeSchema },
+      { name: Department.name, schema: DepartmentSchema },
     ]),
     AuthModule,
     FileModule,

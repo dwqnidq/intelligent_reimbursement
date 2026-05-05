@@ -5,14 +5,15 @@ import {
   UseGuards,
   Res,
   UseInterceptors,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Injectable,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiProperty,
+} from '@nestjs/swagger';
 import { IsString, IsArray, IsOptional } from 'class-validator';
-import { Observable } from 'rxjs';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AiService } from './ai.service';
@@ -20,23 +21,25 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { User } from '../../schemas/user.schema';
 import { Role } from '../../schemas/role.schema';
-
-@Injectable()
-class NoWrapInterceptor implements NestInterceptor {
-  intercept(_ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
-    return next.handle();
-  }
-}
+import { NoWrapResponseInterceptor } from '../../common/no-wrap.interceptor';
 
 class ChatDto {
+  @ApiProperty({ description: '用户消息内容', example: '帮我分析本月报销数据' })
   @IsString()
   message: string;
 
+  @ApiProperty({
+    description: '附件文件 URL 数组',
+    required: false,
+    type: [String],
+  })
   @IsOptional()
   @IsArray()
   files?: string[];
 }
 
+@ApiTags('AI 智能助手')
+@ApiBearerAuth()
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AiController {
@@ -46,8 +49,9 @@ export class AiController {
     @InjectModel(Role.name) private roleModel: Model<Role>,
   ) {}
 
+  @ApiOperation({ summary: 'AI 流式对话（SSE）' })
   @Post('chat')
-  @UseInterceptors(NoWrapInterceptor)
+  @UseInterceptors(NoWrapResponseInterceptor)
   async chat(
     @Body() chatDto: ChatDto,
     @Res() res: Response,

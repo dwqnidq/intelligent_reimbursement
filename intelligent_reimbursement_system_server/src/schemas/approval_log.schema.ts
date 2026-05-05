@@ -1,13 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, versionKey: false })
 export class ApprovalLog extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Reimbursement', required: true })
-  reimbursement: Types.ObjectId;
+  @Prop({ type: String, ref: 'Reimbursement', required: true })
+  reimbursement: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  approver: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  approver: string;
 
   @Prop({ required: true, enum: ['approve', 'reject'] })
   action: string;

@@ -5,7 +5,7 @@ import { ReimbursementTypeService } from './reimbursement-type.service';
 import {
   ReimbursementType,
   ReimbursementTypeSchema,
-} from '../../schemas/reimbursement-type.schema';
+} from '../../schemas/reimbursement_type.schema';
 import { User, UserSchema } from '../../schemas/user.schema';
 
 @Module({

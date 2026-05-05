@@ -5,13 +5,14 @@ import { ReimbursementService } from './reimbursement.service';
 import {
   Reimbursement,
   ReimbursementSchema,
-} from '../../schemas/reimbursement.schema';
+} from '../../schemas/reimbursement_records.schema';
 import {
   ReimbursementType,
   ReimbursementTypeSchema,
-} from '../../schemas/reimbursement-type.schema';
+} from '../../schemas/reimbursement_type.schema';
 import { User, UserSchema } from '../../schemas/user.schema';
 import { File, FileSchema } from '../../schemas/file.schema';
+import { ApprovalRecordModule } from '../approval-record/approval-record.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { File, FileSchema } from '../../schemas/file.schema';
       { name: User.name, schema: UserSchema },
       { name: File.name, schema: FileSchema },
     ]),
+    ApprovalRecordModule,
   ],
   controllers: [ReimbursementController],
   providers: [ReimbursementService],

@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ApprovalFlowController } from './approval-flow.controller';
 import { ApprovalFlowService } from './approval-flow.service';
-import { ApprovalFlow, ApprovalFlowSchema } from '../../schemas/approval-flow.schema';
+import {
+  ApprovalFlow,
+  ApprovalFlowSchema,
+} from '../../schemas/approval_flow.schema';
 
 @Module({
   imports: [

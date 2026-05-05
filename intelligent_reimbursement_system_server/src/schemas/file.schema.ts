@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, versionKey: false })
 export class File extends Document {
   @Prop({ required: true, enum: ['avatar', 'attachment'] })
   type: string;
@@ -18,11 +18,11 @@ export class File extends Document {
   @Prop()
   mime_type: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  uploader: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  uploader: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  uid: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  uid: string;
 }
 
 export const FileSchema = SchemaFactory.createForClass(File);

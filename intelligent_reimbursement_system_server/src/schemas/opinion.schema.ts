@@ -1,10 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ collection: 'opinion_info', timestamps: true })
+@Schema({ collection: 'opinion_info', timestamps: true, versionKey: false })
 export class Opinion extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  uid: Types.ObjectId;
+  @Prop({ type: String, ref: 'User', required: true })
+  uid: string;
 
   @Prop({ required: true, trim: true })
   title: string;

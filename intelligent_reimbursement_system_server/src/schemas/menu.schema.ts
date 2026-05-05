@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, versionKey: false })
 export class Menu extends Document {
   @Prop({ required: true })
   name: string;
@@ -21,11 +21,11 @@ export class Menu extends Document {
   @Prop({ required: true, enum: ['directory', 'menu', 'button'] })
   type: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Menu', default: null })
-  parent_id: Types.ObjectId;
+  @Prop({ type: String, ref: 'Menu', default: null })
+  parent_id: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Permission' })
-  permission: Types.ObjectId;
+  @Prop({ type: String, ref: 'Permission' })
+  permission: string;
 
   @Prop({ default: 1, enum: [0, 1] })
   visible: number;

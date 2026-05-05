@@ -7,12 +7,13 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as ExcelJS from 'exceljs';
-import { Reimbursement } from '../../schemas/reimbursement.schema';
-import { ReimbursementType } from '../../schemas/reimbursement-type.schema';
+import { Reimbursement } from '../../schemas/reimbursement_records.schema';
+import { ReimbursementType } from '../../schemas/reimbursement_type.schema';
 import { User } from '../../schemas/user.schema';
 import { CreateReimbursementDto } from './dto/create-reimbursement.dto';
 import { ApproveReimbursementDto } from './dto/approve-reimbursement.dto';
 import { SearchReimbursementDto } from './dto/search-reimbursement.dto';
+import { ApprovalRecordService } from '../approval-record/approval-record.service';
 
 interface PopulatedCategory {
   label?: string;
@@ -37,6 +38,7 @@ interface PopulatedFile {
 
 interface ReimbursementDoc {
   _id: string;
+  submission_batch_id: string;
   detail: Record<string, unknown>;
   category: PopulatedCategory | null;
   category_name?: string;
@@ -44,6 +46,7 @@ interface ReimbursementDoc {
   approver: PopulatedUser | null;
   attachments: PopulatedFile[];
   is_over_limit: boolean;
+  has_approval_flow?: boolean;
   amount: number;
   status: string;
   apply_date: string;
@@ -52,12 +55,25 @@ interface ReimbursementDoc {
 }
 
 interface FilterQuery {
-  applicant?: string | Types.ObjectId;
-  category?: Types.ObjectId;
+  applicant?: string;
+  category?: string | Record<string, unknown>;
   status?: string;
   amount?: { $gte?: number; $lte?: number };
   apply_date?: { $gte?: string; $lte?: string };
   [key: string]: unknown;
+}
+
+interface ReimbursementTreeGroup {
+  key: string;
+  _id: string;
+  is_group: true;
+  submission_batch_id: string;
+  applicant_name: string | null;
+  apply_date: string | null;
+  total_amount: number;
+  count: number;
+  status: 'pending' | 'approved' | 'rejected' | 'mixed';
+  children: ReimbursementDoc[];
 }
 
 @Injectable()
@@ -69,9 +85,38 @@ export class ReimbursementService {
     private typeModel: Model<ReimbursementType>,
     @InjectModel(User.name)
     private userModel: Model<User>,
+    private approvalRecordService: ApprovalRecordService,
   ) {}
 
-  async create(userId: string, dto: CreateReimbursementDto) {
+  /**
+   * 请求体为数组：每一项为一次「报销包」（含 applicant_name、category、attachments、apply_date、details[]）。
+   * 每个包内 details 的每一条写入一条数据库记录。
+   */
+  async createBatch(userId: string, dtos: CreateReimbursementDto[]) {
+    if (!Array.isArray(dtos) || dtos.length === 0) {
+      throw new BadRequestException('请求体须为包含至少一项的非空 JSON 数组');
+    }
+
+    // 同一次请求共用一个 submission_batch_id
+    const submissionBatchId = new Types.ObjectId().toHexString();
+    const allIds: string[] = [];
+    for (const dto of dtos) {
+      const { ids } = await this.insertRecordsForSinglePayload(
+        userId,
+        dto,
+        submissionBatchId,
+      );
+      allIds.push(...ids);
+    }
+
+    return { ids: allIds, count: allIds.length };
+  }
+
+  private async insertRecordsForSinglePayload(
+    userId: string,
+    dto: CreateReimbursementDto,
+    submissionBatchId: string,
+  ): Promise<{ ids: string[]; count: number }> {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('用户不存在');
     if (user.real_name !== dto.applicant_name) {
@@ -80,43 +125,70 @@ export class ReimbursementService {
 
     const categoryType = await this.typeModel
       .findById(dto.category)
-      .select('label fields formula over_limit_threshold');
+      .select('code label fields formula over_limit_threshold');
     if (!categoryType) throw new NotFoundException('报销类型不存在');
 
-    // 后端根据 formula 和 fields 计算 amount，不依赖前端传值
-    const calculatedAmount = this.calcAmount(
-      {
-        label: categoryType.label,
-        fields: categoryType.fields as unknown as {
-          key: string;
-          label: string;
-          sort: number;
-          is_calculate: boolean;
-        }[],
-        formula: categoryType.formula,
-      },
-      dto.detail,
-    );
-    const amount = calculatedAmount ?? dto.amount ?? 0;
+    const categoryForCalc = {
+      label: categoryType.label,
+      fields: categoryType.fields as unknown as {
+        key: string;
+        label: string;
+        sort: number;
+        is_calculate: boolean;
+      }[],
+      formula: categoryType.formula,
+    };
 
     const overLimitThreshold = (
       categoryType as unknown as { over_limit_threshold?: number }
     ).over_limit_threshold;
-    const is_over_limit =
-      overLimitThreshold != null ? amount > overLimitThreshold : false;
 
-    const record = await this.reimbursementModel.create({
-      applicant: new Types.ObjectId(userId),
-      category: new Types.ObjectId(dto.category),
-      category_name: categoryType.label,
-      amount,
-      is_over_limit,
-      detail: dto.detail,
-      attachments: (dto.attachments || []).map((id) => new Types.ObjectId(id)),
-      apply_date: dto.apply_date,
-    });
+    const attachmentIds = (dto.attachments || []).map((id) => String(id));
 
-    return { id: record._id };
+    const ids: string[] = [];
+    for (const detail of dto.details) {
+      const detailObj = detail as Record<string, unknown>;
+      const calculatedAmount = this.calcAmount(categoryForCalc, detailObj);
+      let amount = calculatedAmount ?? 0;
+      const is_over_limit =
+        overLimitThreshold != null ? amount > overLimitThreshold : false;
+      if (is_over_limit && overLimitThreshold != null) {
+        amount = overLimitThreshold;
+      }
+
+      const record = await this.reimbursementModel.create({
+        submission_batch_id: submissionBatchId,
+        applicant: userId,
+        category: dto.category,
+        category_name: categoryType.label,
+        amount,
+        is_over_limit,
+        detail: detailObj,
+        attachments: attachmentIds,
+        apply_date: dto.apply_date,
+      });
+      ids.push(String(record._id));
+
+      // Trigger approval flow
+      const typeCode = (categoryType as unknown as { code?: string }).code;
+      if (typeCode) {
+        const approvalRecord = await this.approvalRecordService.create(
+          String(record._id),
+          typeCode,
+          amount,
+        );
+        if (approvalRecord) {
+          await this.reimbursementModel.findByIdAndUpdate(record._id, {
+            has_approval_flow: true,
+          });
+        }
+      }
+    }
+
+    return {
+      ids: ids.map((id) => String(id)),
+      count: ids.length,
+    };
   }
 
   async approve(userId: string, id: string, dto: ApproveReimbursementDto) {
@@ -143,7 +215,7 @@ export class ReimbursementService {
           reject_reason: dto.reject_reason || null,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
     return { id: updated!._id, status: updated!.status };
   }
@@ -188,6 +260,64 @@ export class ReimbursementService {
     return this.queryList(filter, page, size, skip);
   }
 
+  async getTreeList(userId: string, query: SearchReimbursementDto) {
+    const user = await this.userModel.findById(userId).populate('roles');
+    console.log("user", user);
+    const roles = user!.roles as unknown as { name: string }[];
+    const isAdmin = roles.some((r) => r.name === 'admin');
+
+    const page = Math.max(1, query.page || 1);
+    const size = Math.max(1, query.size || 10);
+
+    const filter = await this.buildFilter(userId, isAdmin, query);
+    if (filter === null) return { list: [], total: 0, page, size };
+
+    const allList = await this.queryAll(filter);
+    const groupedMap = new Map<string, ReimbursementDoc[]>();
+    for (const item of allList) {
+      const batchId = item.submission_batch_id || item._id;
+      const prev = groupedMap.get(batchId) ?? [];
+      prev.push(item);
+      groupedMap.set(batchId, prev);
+    }
+
+    const allGroups: ReimbursementTreeGroup[] = Array.from(
+      groupedMap.entries(),
+    ).map(([batchId, children]) => {
+      const total_amount = children.reduce(
+        (sum, x) => sum + (x.amount ?? 0),
+        0,
+      );
+      const statusSet = new Set(children.map((x) => x.status));
+      const status =
+        statusSet.size === 1
+          ? (Array.from(statusSet)[0] as 'pending' | 'approved' | 'rejected')
+          : 'mixed';
+      const first = children[0];
+      return {
+        key: `batch-${batchId}`,
+        _id: `batch-${batchId}`,
+        is_group: true,
+        submission_batch_id: batchId,
+        applicant_name: first?.applicant_name ?? null,
+        apply_date: first?.apply_date ?? null,
+        total_amount,
+        count: children.length,
+        status,
+        children: children.map((child) => ({
+          ...child,
+          key: child._id,
+        })) as ReimbursementDoc[],
+      };
+    });
+
+    const total = allGroups.length;
+    const start = (page - 1) * size;
+    const list = allGroups.slice(start, start + size);
+
+    return { list, total, page, size };
+  }
+
   /** 构建通用筛选条件，category 支持逗号分隔多值 */
   private async buildFilter(
     userId: string,
@@ -197,7 +327,7 @@ export class ReimbursementService {
     const { category, status, min_amount, max_amount, start_date, end_date } =
       query;
     const filter: FilterQuery = !isAdmin
-      ? { applicant: new Types.ObjectId(userId) }
+      ? { applicant: userId }
       : {};
 
     if (category) {
@@ -207,26 +337,26 @@ export class ReimbursementService {
         .filter(Boolean);
       if (codes.length === 1) {
         const code = codes[0];
-        if (Types.ObjectId.isValid(code)) {
-          filter.category = new Types.ObjectId(code);
+        if (/^[0-9a-fA-F]{24}$/.test(code)) {
+          filter.category = code;
         } else {
           const type = await this.typeModel.findOne({ code }).select('_id');
           if (!type) return null;
-          filter.category = new Types.ObjectId(String(type._id));
+          filter.category = String(type._id);
         }
       } else {
-        // 多类型：全部解析为 ObjectId
-        const ids: Types.ObjectId[] = [];
+        // 多类型：全部解析为 ID
+        const ids: string[] = [];
         for (const code of codes) {
-          if (Types.ObjectId.isValid(code)) {
-            ids.push(new Types.ObjectId(code));
+          if (/^[0-9a-fA-F]{24}$/.test(code)) {
+            ids.push(code);
           } else {
             const type = await this.typeModel.findOne({ code }).select('_id');
-            if (type) ids.push(new Types.ObjectId(String(type._id)));
+            if (type) ids.push(String(type._id));
           }
         }
         if (ids.length === 0) return null;
-        filter.category = { $in: ids } as unknown as Types.ObjectId;
+        filter.category = { $in: ids } as unknown as string;
       }
     }
 
@@ -262,6 +392,17 @@ export class ReimbursementService {
     if (!calcFields.length) return null;
 
     const keys = calcFields.map((f) => f.key);
+
+    // Ensure all variables referenced in the formula are included as function parameters
+    const formulaVars = formula.match(/\b[a-zA-Z_]\w*\b/g) || [];
+    const builtinFns = new Set([
+      'Math', 'parseInt', 'parseFloat', 'Number', 'abs', 'ceil', 'floor', 'round', 'max', 'min', 'pow', 'sqrt',
+    ]);
+    for (const v of formulaVars) {
+      if (!builtinFns.has(v) && !/^\d+$/.test(v) && !keys.includes(v)) {
+        keys.push(v);
+      }
+    }
 
     const fn = new Function(...keys, `return ${formula}`) as (
       ...args: number[]
@@ -313,7 +454,7 @@ export class ReimbursementService {
   private async queryAll(filter: FilterQuery) {
     const list = await this.reimbursementModel
       .find(filter)
-      .select('-createdAt -updatedAt -__v')
+      .select('-createdAt -updatedAt')
       .populate(this.populateOptions)
       .sort({ createdAt: -1 });
 
@@ -329,7 +470,7 @@ export class ReimbursementService {
     const [list, total] = await Promise.all([
       this.reimbursementModel
         .find(filter)
-        .select('-createdAt -updatedAt -__v')
+        .select('-createdAt -updatedAt')
         .populate(this.populateOptions)
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -400,7 +541,7 @@ export class ReimbursementService {
 
     const filter = await this.buildFilter(userId, isAdmin, query);
     const effectiveFilter =
-      filter ?? (!isAdmin ? { applicant: new Types.ObjectId(userId) } : {});
+      filter ?? (!isAdmin ? { applicant: userId } : {});
 
     // 只 populate 申请人，category 单独查以获取 export_fields
     const rawList = await this.reimbursementModel

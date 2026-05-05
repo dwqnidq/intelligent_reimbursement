@@ -10,12 +10,15 @@ import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
 import { User } from '../../schemas/user.schema';
-import { FeishuUser } from '../../schemas/feishu-user.schema';
+import { FeishuUser } from '../../schemas/feishu_user.schema';
 import { Role } from '../../schemas/role.schema';
+import { Employee } from '../../schemas/employee.schema';
+import { Department } from '../../schemas/department.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 interface PopulatedPermission {
   _id: string;
@@ -40,8 +43,21 @@ export class UserService {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(FeishuUser.name) private feishuUserModel: Model<FeishuUser>,
     @InjectModel(Role.name) private roleModel: Model<Role>,
+    @InjectModel(Employee.name) private employeeModel: Model<Employee>,
+    @InjectModel(Department.name) private deptModel: Model<Department>,
     private jwtService: JwtService,
   ) {}
+
+  private signAccessToken(payload: { id: string; username: string }) {
+    return this.jwtService.sign(payload);
+  }
+
+  private signRefreshToken(payload: { id: string; username: string }) {
+    return this.jwtService.sign(
+      { ...payload, type: 'refresh' },
+      { expiresIn: '30d' },
+    );
+  }
 
   private async getDefaultEmployeeRoleId() {
     const role =
@@ -50,7 +66,7 @@ export class UserService {
     if (!role?._id) {
       throw new NotFoundException('未找到默认员工角色，请先初始化 employee/员工 角色');
     }
-    return role._id;
+    return String(role._id);
   }
 
   async register(dto: RegisterDto) {
@@ -66,7 +82,39 @@ export class UserService {
       auth_provider: 'local',
       password_login_enabled: true,
     });
+
+    // 自动创建员工记录
+    const existingEmp = await this.employeeModel.findOne({ uid: String(user._id) });
+    if (!existingEmp) {
+      const empCount = await this.employeeModel.countDocuments();
+      const employeeNo = `EM${String(empCount + 1).padStart(5, '0')}`;
+      await this.employeeModel.create({
+        employee_no: employeeNo,
+        name: dto.real_name || dto.username,
+        gender: 0,
+        phone: dto.phone || '',
+        status: 1,
+        uid: String(user._id),
+      });
+    }
+
     return { id: user._id, username: user.username };
+  }
+
+  async findAll() {
+    return this.userModel
+      .find()
+      .select('-password')
+      .populate('roles')
+      .sort({ createdAt: -1 });
+  }
+
+  async assignRoles(userId: string, roleIds: string[]) {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('用户不存在');
+    user.roles = roleIds as any;
+    await user.save();
+    return this.userModel.findById(userId).select('-password').populate('roles');
   }
 
   async login(dto: LoginDto) {
@@ -125,13 +173,18 @@ export class UserService {
     const permissions = [...permissionMap.values()].map((p) => p.name);
     const menus = this.buildMenuTree([...menuMap.values()]);
 
-    const token = this.jwtService.sign({
-      id: user._id,
+    const token = this.signAccessToken({
+      id: String(user._id),
+      username: user.username,
+    });
+    const refreshToken = this.signRefreshToken({
+      id: String(user._id),
       username: user.username,
     });
 
     return {
       token,
+      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -195,6 +248,22 @@ export class UserService {
       }));
   }
 
+  private async getFeishuTenantToken(): Promise<string | null> {
+    const appId = process.env.FEISHU_APP_ID;
+    const appSecret = process.env.FEISHU_APP_SECRET;
+    if (!appId || !appSecret) return null;
+    const res = await fetch(
+      'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+      },
+    );
+    const data = (await res.json()) as { code: number; tenant_access_token?: string };
+    return data.code === 0 ? data.tenant_access_token ?? null : null;
+  }
+
   async feishuLogin(code: string): Promise<string> {
     const appId = process.env.FEISHU_APP_ID;
     const appSecret = process.env.FEISHU_APP_SECRET;
@@ -250,7 +319,7 @@ export class UserService {
     const normalizedEmail = email?.trim().toLowerCase() || `${open_id}@feishu.local`;
 
     // 3. 先通过映射表定位主用户
-    const feishuUser = await this.feishuUserModel.findOne({ openId: open_id });
+    const feishuUser = await this.feishuUserModel.findOne({ open_id: open_id });
     let user = feishuUser?.uid ? await this.userModel.findById(feishuUser.uid) : null;
 
     // 4. 如果映射不存在，尝试按邮箱绑定已有用户，否则自动开户
@@ -275,24 +344,94 @@ export class UserService {
 
     // 5. 维护飞书映射记录（仅身份映射与资料快照）
     await this.feishuUserModel.findOneAndUpdate(
-      { openId: open_id },
+      { open_id: open_id },
       {
-        openId: open_id,
-        unionId: union_id,
+        open_id: open_id,
+        union_id: union_id,
         name,
         email: normalizedEmail,
         mobile,
         avatar_url,
-        uid: user._id,
+        uid: String(user._id),
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
-    // 6. 基于主用户签发 token
-    return this.jwtService.sign(
-      { id: user._id, username: user.username },
-      { expiresIn: '7d' },
-    );
+    // 6. 获取飞书用户部门信息
+    let deptId: string | undefined;
+    try {
+      const tenantToken = await this.getFeishuTenantToken();
+      if (tenantToken) {
+        // 获取用户部门列表
+        const userDetailRes = await fetch(
+          `https://open.feishu.cn/open-apis/contact/v3/users/${open_id}?user_id_type=open_id`,
+          { headers: { Authorization: `Bearer ${tenantToken}` } },
+        );
+        const userDetail = (await userDetailRes.json()) as {
+          code: number;
+          data?: { user?: { department_ids?: string[] } };
+        };
+        const departmentIds = userDetail.data?.user?.department_ids ?? [];
+
+        if (departmentIds.length > 0) {
+          // 获取第一个部门的详情
+          const deptRes = await fetch(
+            `https://open.feishu.cn/open-apis/contact/v3/departments/${departmentIds[0]}?department_id_type=open_department_id`,
+            { headers: { Authorization: `Bearer ${tenantToken}` } },
+          );
+          const deptData = (await deptRes.json()) as {
+            code: number;
+            data?: { department?: { name?: string; department_id?: string } };
+          };
+          const deptName = deptData.data?.department?.name;
+
+          if (deptName) {
+            // 查找或创建部门
+            let dept = await this.deptModel.findOne({ name: deptName });
+            if (!dept) {
+              const deptCount = await this.deptModel.countDocuments();
+              dept = await this.deptModel.create({
+                name: deptName,
+                code: `DEPT${String(deptCount + 1).padStart(3, '0')}`,
+                status: 1,
+                sort: 0,
+              });
+            }
+            deptId = String(dept._id);
+          }
+        }
+      }
+    } catch (err) {
+      // 部门同步失败不影响登录流程
+      console.error('飞书部门同步失败:', err);
+    }
+
+    // 7. 自动创建员工记录（如果不存在）
+    const existingEmp = await this.employeeModel.findOne({ uid: String(user._id) });
+    if (!existingEmp) {
+      const empCount = await this.employeeModel.countDocuments();
+      const employeeNo = `FE${String(empCount + 1).padStart(5, '0')}`;
+      await this.employeeModel.create({
+        employee_no: employeeNo,
+        name: name || user.real_name || '飞书用户',
+        gender: 0,
+        phone: mobile || '',
+        avatar: avatar_url || '',
+        status: 1,
+        uid: String(user._id),
+        ...(deptId ? { dept_id: deptId } : {}),
+      });
+    } else if (deptId && !existingEmp.dept_id) {
+      // 已有员工但没部门，补充部门
+      existingEmp.dept_id = deptId as any;
+      await existingEmp.save();
+    }
+
+    // 8. 基于主用户签发 token
+    return this.signAccessToken({
+      id: String(user._id),
+      username: user.username,
+    });
   }
 
   async getSessionByToken(userId: string) {
@@ -312,12 +451,17 @@ export class UserService {
     }
     const permissions = [...permissionMap.values()].map((p) => p.name);
     const menus = this.buildMenuTree([...menuMap.values()]);
-    const token = this.jwtService.sign({
-      id: user._id,
+    const token = this.signAccessToken({
+      id: String(user._id),
+      username: user.username,
+    });
+    const refreshToken = this.signRefreshToken({
+      id: String(user._id),
       username: user.username,
     });
     return {
       token,
+      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -328,6 +472,40 @@ export class UserService {
       },
       permissions,
       menus,
+    };
+  }
+
+  async refreshToken(dto: RefreshTokenDto) {
+    let payload: { id: string; username: string; type?: string };
+    try {
+      payload = this.jwtService.verify(dto.refreshToken);
+    } catch {
+      throw new UnauthorizedException('refreshToken 无效或已过期');
+    }
+
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('refreshToken 类型无效');
+    }
+
+    const user = await this.userModel.findById(payload.id).select(
+      '_id username status',
+    );
+    if (!user) {
+      throw new UnauthorizedException('用户不存在');
+    }
+    if (user.status === 0) {
+      throw new ForbiddenException('账号已被禁用');
+    }
+
+    return {
+      token: this.signAccessToken({
+        id: String(user._id),
+        username: user.username,
+      }),
+      refreshToken: this.signRefreshToken({
+        id: String(user._id),
+        username: user.username,
+      }),
     };
   }
 }

@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Param,
   Body,
   Query,
   Res,
@@ -23,6 +24,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FileService } from '../file/file.service';
@@ -84,6 +86,18 @@ export class UserController {
     return payload;
   }
 
+  @Public()
+  @ApiOperation({ summary: '刷新访问令牌' })
+  @Post('refresh-token')
+  async refreshToken(
+    @Body() dto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const payload = await this.userService.refreshToken(dto);
+    this.setAuthCookie(res, payload.token);
+    return payload;
+  }
+
   @ApiOperation({ summary: '获取当前登录用户信息' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -112,6 +126,25 @@ export class UserController {
     @Body() dto: SetPasswordDto,
   ) {
     return this.userService.setPassword(userId, dto);
+  }
+
+  @ApiOperation({ summary: '获取所有用户列表（含角色）' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  findAll() {
+    return this.userService.findAll();
+  }
+
+  @ApiOperation({ summary: '分配角色给用户' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/roles')
+  assignRoles(
+    @Param('id') id: string,
+    @Body('roles') roles: string[],
+  ) {
+    return this.userService.assignRoles(id, roles);
   }
 
   @ApiOperation({ summary: '上传头像，自动更新用户 avatar 字段' })
