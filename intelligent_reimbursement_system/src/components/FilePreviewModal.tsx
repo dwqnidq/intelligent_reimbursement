@@ -1,4 +1,4 @@
-import { Modal, Image, Spin, Button } from 'antd'
+import { Modal, Spin } from 'antd'
 import { useState } from 'react'
 
 interface Props {
@@ -8,12 +8,12 @@ interface Props {
 }
 
 function isImage(url: string, mimeType?: string) {
-  if (mimeType) return mimeType.startsWith('image/')
+  if (mimeType && mimeType.length > 0) return mimeType.startsWith('image/')
   return /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(url)
 }
 
 function isPdf(url: string, mimeType?: string) {
-  if (mimeType) return mimeType === 'application/pdf'
+  if (mimeType && mimeType.length > 0) return mimeType === 'application/pdf'
   return /\.pdf(\?|$)/i.test(url)
 }
 
@@ -53,16 +53,18 @@ export default function FilePreviewModal({ url, mimeType, onClose }: Props) {
       centered
       destroyOnClose
     >
-      {/* 图片：使用 Ant Design Image 内置预览，自带滚轮缩放、拖拽、旋转 */}
+      {/* 图片：用原生 img，避免 Modal 内 Ant Design Image 二次点击才进入预览层 */}
       {image && (
-        <Image
+        <img
           src={url}
-          preview={{
-            src: url,
-            mask: false,
+          alt="附件预览"
+          style={{
+            maxWidth: '80vw',
+            maxHeight: '80vh',
+            display: 'block',
+            margin: '0 auto',
+            objectFit: 'contain',
           }}
-          style={{ maxWidth: '80vw', maxHeight: '80vh', display: 'block' }}
-          wrapperStyle={{ display: 'block' }}
         />
       )}
 

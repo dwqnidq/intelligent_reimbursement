@@ -36,6 +36,23 @@ import dayjs from 'dayjs';
 
 const { TextArea } = Input;
 
+/** 部分系统/浏览器下 file.type 为空，用于预览弹窗正确识别图片/PDF */
+function inferMimeFromFileName(fileName: string): string | undefined {
+	const ext = fileName.split('.').pop()?.toLowerCase();
+	if (!ext) return undefined;
+	const map: Record<string, string> = {
+		jpg: 'image/jpeg',
+		jpeg: 'image/jpeg',
+		png: 'image/png',
+		gif: 'image/gif',
+		webp: 'image/webp',
+		bmp: 'image/bmp',
+		svg: 'image/svg+xml',
+		pdf: 'application/pdf',
+	};
+	return map[ext];
+}
+
 function normalizeFieldType(t: string): FieldType {
 	const x = (t || 'text').toLowerCase();
 	if (x === 'number' || x === 'select' || x === 'date' || x === 'textarea') return x;
@@ -247,30 +264,29 @@ function FileSlotRecognitionBanner({ s }: { s: FileSlotRecognitionSummary }) {
 
 function LocalFileRow({
 	file,
+	blobUrl,
 	onPreview,
 	onRemove,
 }: {
 	file: UploadFile;
+	blobUrl: string | null;
 	onPreview: (url: string, mime?: string) => void;
 	onRemove: () => void;
 }) {
-	const localUrl = useMemo(() => {
-		if (!file.originFileObj) return null;
-		return URL.createObjectURL(file.originFileObj);
-	}, [file.originFileObj]);
-
-	useEffect(() => {
-		if (!localUrl) return;
-		return () => URL.revokeObjectURL(localUrl);
-	}, [localUrl]);
-
-	const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
+	const inferredMime = inferMimeFromFileName(file.name);
+	const mime =
+		(file.type && file.type !== '' ? file.type : undefined) ??
+		(file.originFileObj?.type && file.originFileObj.type !== '' ? file.originFileObj.type : undefined) ??
+		inferredMime;
+	const isImg =
+		(mime?.startsWith('image/') ?? false) ||
+		(!mime && /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name));
 
 	return (
 		<div className="flex items-center gap-2 py-1.5 px-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-card)]">
-			{isImg && localUrl ? (
+			{isImg && blobUrl ? (
 				<Image
-					src={localUrl}
+					src={blobUrl}
 					width={40}
 					height={40}
 					className="rounded object-cover shrink-0"
@@ -287,7 +303,7 @@ function LocalFileRow({
 				size="small"
 				icon={<EyeOutlined />}
 				onClick={() => {
-					if (localUrl) onPreview(localUrl, file.type ?? file.originFileObj?.type);
+					if (blobUrl) onPreview(blobUrl, mime);
 				}}
 			/>
 			<Button type="text" size="small" danger onClick={onRemove}>
@@ -429,6 +445,8 @@ export default function ReimbursementForm() {
 	const [manualItemsMeta, setManualItemsMeta] = useState<ManualItemMeta[]>([createManualItemMeta()]);
 
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	/** 智能填写左栏：与 fileList 同步的 blob 预览地址（渲染阶段维护，避免子组件 useEffect 首帧无 URL） */
+	const smartFileBlobUrlRef = useRef<Map<string, string>>(new Map());
 	const typesRef = useRef<ReimbursementType[]>([]);
 	typesRef.current = types;
 	const fileListRef = useRef<UploadFile[]>([]);
@@ -561,7 +579,7 @@ export default function ReimbursementForm() {
 				itemMetaLine,
 				summaries,
 				fileListRef.current,
-				typeFields,
+				unionFields,
 				remarkVal,
 			);
 			manualForm.setFieldsValue({
@@ -589,6 +607,13 @@ export default function ReimbursementForm() {
 			.then((data) => setTypes(data))
 			.catch(() => {})
 			.finally(() => setCategoryLoading(false));
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			smartFileBlobUrlRef.current.forEach((u) => URL.revokeObjectURL(u));
+			smartFileBlobUrlRef.current.clear();
+		};
 	}, []);
 
 	useEffect(() => {
@@ -691,12 +716,12 @@ export default function ReimbursementForm() {
 	const addLocalFiles = (files: FileList | File[]) => {
 		const arr = Array.from(files).filter(Boolean);
 		if (arr.length === 0) return;
-		const next: UploadFile[] = arr.map((file, i) => ({
+		const next = arr.map((file, i) => ({
 			uid: `${Date.now()}-${i}-${file.name}`,
 			name: file.name,
-			status: 'done',
+			status: 'done' as const,
 			originFileObj: file,
-		}));
+		})) as UploadFile[];
 		setFileList((prev) => [...prev, ...next]);
 		clearAiForm();
 	};
@@ -704,12 +729,12 @@ export default function ReimbursementForm() {
 	const addManualLocalFiles = (files: FileList | File[], itemIndex: number) => {
 		const arr = Array.from(files).filter(Boolean);
 		if (arr.length === 0) return;
-		const next: UploadFile[] = arr.map((file, i) => ({
+		const next = arr.map((file, i) => ({
 			uid: `m-${Date.now()}-${i}-${file.name}`,
 			name: file.name,
-			status: 'done',
+			status: 'done' as const,
 			originFileObj: file,
-		}));
+		})) as UploadFile[];
 		setManualItemsMeta((prev) =>
 			prev.map((item, idx) => (idx === itemIndex ? { ...item, files: [...item.files, ...next] } : item)),
 		);
@@ -912,6 +937,24 @@ export default function ReimbursementForm() {
 		return matchedType?.over_limit_threshold ?? summary.over_limit_threshold ?? null;
 	};
 
+	{
+		const alive = new Set<string>();
+		for (const f of fileList) {
+			alive.add(f.uid);
+			const obj = f.originFileObj;
+			if (obj && !smartFileBlobUrlRef.current.has(f.uid)) {
+				smartFileBlobUrlRef.current.set(f.uid, URL.createObjectURL(obj));
+			}
+		}
+		for (const uid of [...smartFileBlobUrlRef.current.keys()]) {
+			if (!alive.has(uid)) {
+				const url = smartFileBlobUrlRef.current.get(uid);
+				if (url) URL.revokeObjectURL(url);
+				smartFileBlobUrlRef.current.delete(uid);
+			}
+		}
+	}
+
 	return (
 		<Card className="w-full flex flex-col flex-1">
 			<div className="mb-5 w-full">
@@ -992,6 +1035,7 @@ export default function ReimbursementForm() {
 								<LocalFileRow
 									key={file.uid}
 									file={file}
+									blobUrl={smartFileBlobUrlRef.current.get(file.uid) ?? null}
 									onPreview={openPreview}
 									onRemove={() => {
 										setFileList((prev) => {
