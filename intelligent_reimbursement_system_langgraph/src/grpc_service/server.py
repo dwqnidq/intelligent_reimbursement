@@ -1,12 +1,12 @@
 """gRPC 服务器实现"""
+import os
 import grpc
 import logging
 from concurrent import futures
 
-from reimbursement_langgraph.generated import graph_service_pb2, graph_service_pb2_grpc
-from reimbursement_langgraph.graph import main_graph
-from reimbursement_langgraph.stream import stream_graph
-from reimbursement_langgraph.config import settings
+from src.generated import graph_service_pb2, graph_service_pb2_grpc
+from src.graph import main_graph
+from src.stream import stream_graph
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,15 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
             context.set_details(str(e))
 
 
-def serve(port: int = settings.SERVER_PORT, host: str = settings.SERVER_HOST) -> None:
+def serve(port: int | None = None, host: str | None = None) -> None:
     """启动 gRPC 服务器"""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=settings.MAX_WORKERS))
+    if port is None:
+        port = int(os.environ.get("SERVER_PORT", "50051"))
+    if host is None:
+        host = os.environ.get("SERVER_HOST", "0.0.0.0")
+
+    max_workers = int(os.environ.get("MAX_WORKERS", "10"))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     graph_service_pb2_grpc.add_GraphServiceServicer_to_server(
         GraphServiceServicer(), server
     )

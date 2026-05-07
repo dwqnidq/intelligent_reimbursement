@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
-
-from reimbursement_langgraph.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -110,26 +109,28 @@ _ACTIVE_TYPE_FILTER: Dict[str, Any] = {
 
 def fetch_active_reimbursement_types() -> List[Dict[str, Any]]:
     """
-    查询「启用」报销类型。未配置 settings.MONGODB_URI、无法解析库名、或查询失败时返回 []。
+    查询「启用」报销类型。未配置 MONGODB_URI、无法解析库名、或查询失败时返回 []。
     """
-    if not settings.MONGODB_URI:
-        logger.warning("[reimbursement_types] 未配置 settings.MONGODB_URI，跳过数据库查询")
+    mongodb_uri = os.environ.get("MONGODB_URI", "")
+    if not mongodb_uri:
+        logger.warning("[reimbursement_types] 未配置 MONGODB_URI，跳过数据库查询")
         return []
 
     try:
-        with MongoClient(settings.MONGODB_URI, serverSelectionTimeoutMS=8000) as client:
+        with MongoClient(mongodb_uri, serverSelectionTimeoutMS=8000) as client:
             db = client.get_default_database()
             if db is None:
-                if settings.MONGODB_DB_NAME:
-                    db = client[settings.MONGODB_DB_NAME]
+                mongodb_db_name = os.environ.get("MONGODB_DB_NAME", "")
+                if mongodb_db_name:
+                    db = client[mongodb_db_name]
                     logger.info(
-                        "[reimbursement_types] URI 无库名段，已使用 settings.MONGODB_DB_NAME=%s",
-                        settings.MONGODB_DB_NAME,
+                        "[reimbursement_types] URI 无库名段，已使用 MONGODB_DB_NAME=%s",
+                        mongodb_db_name,
                     )
                 else:
                     logger.warning(
                         "[reimbursement_types] MongoDB URI 未包含数据库名（例如 .../Reimbursement），"
-                        "且未设置环境变量 settings.MONGODB_DB_NAME，无法选择集合。"
+                        "且未设置环境变量 MONGODB_DB_NAME，无法选择集合。"
                     )
                     return []
 
@@ -157,7 +158,7 @@ def fetch_active_reimbursement_types() -> List[Dict[str, Any]]:
                         "[reimbursement_types] 启用条件查询结果为 0 条。"
                         "当前 MongoDB 数据库名=%s，集合 reimbursement_types 总文档=%d；"
                         "符合启用条件=%d；其中 status=1=%d、无 status 字段=%d、status=0=%d。"
-                        "总文档为 0 表示该库里此集合为空：请把 LangGraph 的 settings.MONGODB_URI 改成与 Nest 后端完全一致（含 /库名），"
+                        "总文档为 0 表示该库里此集合为空：请把 LangGraph 的 MONGODB_URI 改成与 Nest 后端完全一致（含 /库名），"
                         "或在后台「报销类型管理」先创建类型后再试。",
                         db.name,
                         total,

@@ -1,33 +1,39 @@
 """主入口文件 - 一键启动服务器"""
 import sys
+import os
 import argparse
 import logging
 
-from reimbursement_langgraph.config import settings
-from reimbursement_langgraph.grpc_service.server import serve
+from dotenv import load_dotenv
+load_dotenv()
+
+from src.grpc_service.server import serve
 
 # 配置日志
 logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL),
-    format=settings.LOG_FORMAT
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
+    format=os.environ.get("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 )
 logger = logging.getLogger(__name__)
 
 
 def main():
     """主函数"""
+    default_port = int(os.environ.get("SERVER_PORT", "50051"))
+    default_host = os.environ.get("SERVER_HOST", "0.0.0.0")
+
     parser = argparse.ArgumentParser(description='LangGraph gRPC 服务器')
     parser.add_argument(
         '--port',
         type=int,
-        default=settings.SERVER_PORT,
-        help=f'服务器端口 (默认: {settings.SERVER_PORT})'
+        default=default_port,
+        help=f'服务器端口 (默认: {default_port})'
     )
     parser.add_argument(
         '--host',
         type=str,
-        default=settings.SERVER_HOST,
-        help=f'服务器地址 (默认: {settings.SERVER_HOST})'
+        default=default_host,
+        help=f'服务器地址 (默认: {default_host})'
     )
 
     args = parser.parse_args()

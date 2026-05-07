@@ -1,21 +1,25 @@
 """测试豆包大模型集成 - LangChain 标准写法"""
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from reimbursement_langgraph.config import settings
 
 # LLM 实例在模块顶层初始化一次
 _llm = ChatOpenAI(
-    model=settings.DOUBAO_MODEL,
-    openai_api_key=settings.ARK_API_KEY,
-    openai_api_base=settings.ARK_BASE_URL,
+    model=os.environ.get("DOUBAO_MODEL", "doubao-seed-2-0-pro-260215"),
+    openai_api_key=os.environ.get("ARK_API_KEY", ""),
+    openai_api_base=os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
     temperature=0.7,
     max_tokens=2000,
 )
 
 _llm_stream = ChatOpenAI(
-    model=settings.DOUBAO_MODEL,
-    openai_api_key=settings.ARK_API_KEY,
-    openai_api_base=settings.ARK_BASE_URL,
+    model=os.environ.get("DOUBAO_MODEL", "doubao-seed-2-0-pro-260215"),
+    openai_api_key=os.environ.get("ARK_API_KEY", ""),
+    openai_api_base=os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
     temperature=0.7,
     max_tokens=2000,
     streaming=True,
@@ -23,7 +27,8 @@ _llm_stream = ChatOpenAI(
 
 
 def _check_api_key() -> bool:
-    if not settings.ARK_API_KEY or settings.ARK_API_KEY == "your_ark_api_key_here":
+    api_key = os.environ.get("ARK_API_KEY", "")
+    if not api_key or api_key == "your_ark_api_key_here":
         print("❌ 请在 .env 文件中配置 ARK_API_KEY")
         return False
     return True
@@ -33,7 +38,7 @@ def test_doubao_connection() -> bool:
     """测试豆包模型同步调用"""
     print("=" * 50)
     print("【测试1】同步调用")
-    print(f"  模型: {settings.DOUBAO_MODEL} | API Base: {settings.ARK_BASE_URL}")
+    print(f"  模型: {os.environ.get('DOUBAO_MODEL', '')} | API Base: {os.environ.get('ARK_BASE_URL', '')}")
     print("=" * 50)
 
     if not _check_api_key():

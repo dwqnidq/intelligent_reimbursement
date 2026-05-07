@@ -1,4 +1,4 @@
-"""LangGraph 图定义 - 节点、路由和图编译"""
+"""LangGraph 节点函数"""
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -6,15 +6,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.graph import StateGraph, END
 
-from reimbursement_langgraph.db.reimbursement_types_repo import fetch_active_reimbursement_types
-from reimbursement_langgraph.extract import (
+from src.db.reimbursement_types_repo import fetch_active_reimbursement_types
+from src.extract import (
     _form_extract_one_file,
     _recognize_single_file,
 )
-from reimbursement_langgraph.llm import llm
-from reimbursement_langgraph.models import (
+from src.llm import llm
+from src.models import (
     REIMBURSEMENT_FORM_EXTRACT_TRIGGER,
     _FORM_EXTRACT_MAX_PARALLEL,
     GraphState,
@@ -27,7 +26,7 @@ _logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 
 _REIMBURSEMENT_TYPE_PROMPT_FILE = (
-    Path(__file__).resolve().parent / "prompt" / "reimbursement_type_generator_prompt.md"
+    Path(__file__).resolve().parents[1] / "prompt" / "reimbursement_type_generator_prompt.md"
 )
 
 
@@ -288,6 +287,17 @@ def chat_node(state: GraphState) -> GraphState:
 
 
 # ─────────────────────────────────────────────
+# 输出节点
+# ─────────────────────────────────────────────
+
+
+def generate_output(state: GraphState) -> GraphState:
+    output = {"node": state.get("node", "unknown"), "result": state.get("result", "")}
+    _logger.info("[输出节点] node=%s", output['node'])
+    return {**state, "output": json.dumps(output, ensure_ascii=False)}
+
+
+# ─────────────────────────────────────────────
 # 路由节点
 # ─────────────────────────────────────────────
 
@@ -339,46 +349,3 @@ def route_by_intent(state: GraphState) -> str:
     elif intent == "no_permission":
         return "no_permission"
     return "chat"
-
-
-# ─────────────────────────────────────────────
-# 输出节点
-# ─────────────────────────────────────────────
-
-
-def generate_output(state: GraphState) -> GraphState:
-    output = {"node": state.get("node", "unknown"), "result": state.get("result", "")}
-    _logger.info("[输出节点] node=%s", output['node'])
-    return {**state, "output": json.dumps(output, ensure_ascii=False)}
-
-
-# ─────────────────────────────────────────────
-# 图编译
-# ─────────────────────────────────────────────
-
-
-def create_main_graph() -> StateGraph:
-    workflow = StateGraph(GraphState)
-    workflow.add_node("route_intent", route_intent)
-    workflow.add_node("reimbursement_type", reimbursement_type_node)
-    workflow.add_node("reimbursement_form_extract", reimbursement_form_extract_node)
-    workflow.add_node("chat", chat_node)
-    workflow.add_node("generate_output", generate_output)
-    workflow.set_entry_point("route_intent")
-    workflow.add_conditional_edges(
-        "route_intent",
-        route_by_intent,
-        {
-            "reimbursement_type": "reimbursement_type",
-            "reimbursement_form_extract": "reimbursement_form_extract",
-            "chat": "chat",
-        },
-    )
-    workflow.add_edge("reimbursement_type", "generate_output")
-    workflow.add_edge("reimbursement_form_extract", "generate_output")
-    workflow.add_edge("chat", "generate_output")
-    workflow.add_edge("generate_output", END)
-    return workflow.compile()
-
-
-main_graph = create_main_graph()

@@ -1,15 +1,18 @@
 """gRPC 客户端示例"""
+import os
 import grpc
 import logging
 
-from reimbursement_langgraph.generated import graph_service_pb2, graph_service_pb2_grpc
-from reimbursement_langgraph.config import settings
+from src.generated import graph_service_pb2, graph_service_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
 
-def run_sync_client(input_text: str, host: str = 'localhost', port: int = settings.SERVER_PORT) -> None:
+def run_sync_client(input_text: str, host: str = 'localhost', port: int | None = None) -> None:
     """同步调用示例"""
+    if port is None:
+        port = int(os.environ.get("SERVER_PORT", "50051"))
+
     with grpc.insecure_channel(f'{host}:{port}') as channel:
         stub = graph_service_pb2_grpc.GraphServiceStub(channel)
 
@@ -31,8 +34,11 @@ def run_sync_client(input_text: str, host: str = 'localhost', port: int = settin
         return response
 
 
-def run_stream_client(input_text: str, host: str = 'localhost', port: int = settings.SERVER_PORT) -> None:
+def run_stream_client(input_text: str, host: str = 'localhost', port: int | None = None) -> None:
     """流式调用示例"""
+    if port is None:
+        port = int(os.environ.get("SERVER_PORT", "50051"))
+
     with grpc.insecure_channel(f'{host}:{port}') as channel:
         stub = graph_service_pb2_grpc.GraphServiceStub(channel)
 

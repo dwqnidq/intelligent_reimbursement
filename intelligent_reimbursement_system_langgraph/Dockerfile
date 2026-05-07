@@ -22,20 +22,20 @@ COPY . .
 RUN pip install -e . -i https://mirrors.aliyun.com/pypi/simple/
 
 # 确保输出目录存在
-RUN mkdir -p ./src/reimbursement_langgraph/generated
+RUN mkdir -p ./src/generated
 
 # 生成 gRPC 代码
 RUN python -m grpc_tools.protoc \
     -I./proto \
-    --python_out=./src/reimbursement_langgraph/generated \
-    --grpc_python_out=./src/reimbursement_langgraph/generated \
+    --python_out=./src/generated \
+    --grpc_python_out=./src/generated \
     ./proto/graph_service.proto && \
     python -c "\
 import re; \
-f=open('src/reimbursement_langgraph/generated/graph_service_pb2_grpc.py','r',encoding='utf-8'); \
+f=open('src/generated/graph_service_pb2_grpc.py','r',encoding='utf-8'); \
 content=f.read(); f.close(); \
 content=re.sub(r'^import graph_service_pb2 as','from . import graph_service_pb2 as',content,flags=re.MULTILINE); \
-f=open('src/reimbursement_langgraph/generated/graph_service_pb2_grpc.py','w',encoding='utf-8'); \
+f=open('src/generated/graph_service_pb2_grpc.py','w',encoding='utf-8'); \
 f.write(content); f.close()"
 
 EXPOSE 50051

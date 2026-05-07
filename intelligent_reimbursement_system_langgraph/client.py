@@ -1,19 +1,24 @@
 """客户端入口文件 - 一键测试客户端"""
 import sys
+import os
 import argparse
 
-from reimbursement_langgraph.config import settings
-from reimbursement_langgraph.grpc_service.client import run_sync_client, run_stream_client
+from dotenv import load_dotenv
+load_dotenv()
+
+from src.grpc_service.client import run_sync_client, run_stream_client
 
 
 def main():
     """主函数"""
+    default_port = int(os.environ.get("SERVER_PORT", "50051"))
+
     parser = argparse.ArgumentParser(description='LangGraph gRPC 客户端测试')
     parser.add_argument(
         '--port',
         type=int,
-        default=settings.SERVER_PORT,
-        help=f'服务器端口 (默认: {settings.SERVER_PORT})'
+        default=default_port,
+        help=f'服务器端口 (默认: {default_port})'
     )
     parser.add_argument(
         '--host',
