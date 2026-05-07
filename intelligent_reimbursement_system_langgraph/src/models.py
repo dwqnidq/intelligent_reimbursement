@@ -21,6 +21,7 @@ class GraphState(TypedDict, total=False):
     result: Any
     files: List[str]
     is_admin: bool
+    ocr_texts: List[str]
 
 
 class InvoiceResult(BaseModel):

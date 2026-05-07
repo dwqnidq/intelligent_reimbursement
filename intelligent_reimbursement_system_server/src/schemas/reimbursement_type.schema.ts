@@ -9,7 +9,7 @@ export class FieldConfig {
   @Prop({ required: true })
   label: string;
 
-  @Prop({ default: 'text', enum: ['text', 'number', 'date', 'select'] })
+  @Prop({ default: 'text', enum: ['text', 'number', 'date', 'select', 'textarea'] })
   type: string;
 
   @Prop({ default: false })

@@ -5,6 +5,7 @@ from src.models import GraphState
 from src.nodes.nodes import (
     chat_node,
     generate_output,
+    ocr_extract_node,
     reimbursement_form_extract_node,
     reimbursement_type_node,
     route_by_intent,
@@ -16,6 +17,7 @@ def create_main_graph() -> StateGraph:
     workflow = StateGraph(GraphState)
     workflow.add_node("route_intent", route_intent)
     workflow.add_node("reimbursement_type", reimbursement_type_node)
+    workflow.add_node("ocr_extract", ocr_extract_node)
     workflow.add_node("reimbursement_form_extract", reimbursement_form_extract_node)
     workflow.add_node("chat", chat_node)
     workflow.add_node("generate_output", generate_output)
@@ -25,10 +27,11 @@ def create_main_graph() -> StateGraph:
         route_by_intent,
         {
             "reimbursement_type": "reimbursement_type",
-            "reimbursement_form_extract": "reimbursement_form_extract",
+            "reimbursement_form_extract": "ocr_extract",
             "chat": "chat",
         },
     )
+    workflow.add_edge("ocr_extract", "reimbursement_form_extract")
     workflow.add_edge("reimbursement_type", "generate_output")
     workflow.add_edge("reimbursement_form_extract", "generate_output")
     workflow.add_edge("chat", "generate_output")

@@ -17,6 +17,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _prewarm_ocr():
+    """预热 PaddleOCR，加载模型后再启动服务。"""
+    try:
+        from src.nodes.nodes import warmup_ocr
+        warmup_ocr()
+        logger.info("PaddleOCR 预热完成")
+    except Exception as e:
+        logger.warning("PaddleOCR 预热失败（不影响启动）: %s", e)
+
+
 def main():
     """主函数"""
     default_port = int(os.environ.get("SERVER_PORT", "50051"))
@@ -42,6 +52,8 @@ def main():
     logger.info("LangGraph gRPC 服务器启动中...")
     logger.info("监听地址: %s:%s", args.host, args.port)
     logger.info("=" * 50)
+
+    _prewarm_ocr()
 
     try:
         serve(port=args.port, host=args.host)

@@ -29,8 +29,10 @@ def _parse_llm_json(raw: str, model_cls):
     return model_cls.model_validate(repaired)
 
 
-def _build_form_extract_message_parts_for_one_file(file_data: str) -> List[dict]:
-    """单份文件 → 多模态片段：PDF 先抽文字再作为文本；图片为 image_url。"""
+def _build_form_extract_message_parts_for_one_file(
+    file_data: str, *, ocr_text: Optional[str] = None,
+) -> List[dict]:
+    """单份文件 → 多模态片段：有 OCR 文字时直接用文字；否则 PDF 抽文字、图片发 image_url。"""
     parts: List[dict] = []
     if "::" in file_data:
         file_name, b64_content = file_data.split("::", 1)
@@ -42,6 +44,16 @@ def _build_form_extract_message_parts_for_one_file(file_data: str) -> List[dict]
             {
                 "type": "text",
                 "text": f"[文件] 仅文件名：{file_name}（无图像数据，请根据文件名推断可能类型）",
+            }
+        )
+        return parts
+
+    # 如果已有 OCR 提取的文字，直接使用，跳过图片发送
+    if ocr_text and ocr_text.strip():
+        parts.append(
+            {
+                "type": "text",
+                "text": f"文件「{file_name}」OCR 提取文字：\n{ocr_text[:8000]}",
             }
         )
         return parts
@@ -163,6 +175,8 @@ def _form_extract_one_file(
     file_data: str,
     types_payload: List[Dict[str, Any]],
     total_files: int,
+    *,
+    ocr_text: Optional[str] = None,
 ) -> Tuple[int, List[Dict[str, Any]], Optional[str]]:
     """
     单文件智能填单。返回 (下标, 该文件明细批次, 失败摘要或 None)。
@@ -171,7 +185,7 @@ def _form_extract_one_file(
     short_name = file_data.split("::", 1)[0] if "::" in file_data else file_data
     batch_for_file: List[Dict[str, Any]] = []
     try:
-        file_parts = _build_form_extract_message_parts_for_one_file(file_data)
+        file_parts = _build_form_extract_message_parts_for_one_file(file_data, ocr_text=ocr_text)
         if not file_parts:
             return idx, [], None
         prompt_text = _form_extract_prompt_with_db(
@@ -261,8 +275,8 @@ def _form_extract_one_file(
         return idx, [], f"{short_name}: {str(e)[:120]}"
 
 
-def _recognize_single_file(file_data: str) -> bool:
-    """识别单个文件是否为发票，返回 bool。"""
+def _recognize_single_file(file_data: str, *, ocr_text: Optional[str] = None) -> bool:
+    """识别单个文件是否为发票，返回 bool。有 OCR 文字时用文字判断，否则调 vision LLM。"""
     if "::" in file_data:
         file_name, b64_content = file_data.split("::", 1)
     else:
@@ -270,6 +284,28 @@ def _recognize_single_file(file_data: str) -> bool:
 
     if not b64_content:
         return any(kw in file_name.lower() for kw in ["发票", "invoice", "fapiao", "receipt"])
+
+    # 有 OCR 文字时，用文字判断是否为发票
+    if ocr_text and ocr_text.strip():
+        try:
+            resp = llm.invoke(
+                [
+                    HumanMessage(
+                        content=(
+                            f"以下是一份文件的 OCR 文字内容，文件名：{file_name}。\n"
+                            f"请判断这份文件是否是正规发票（增值税发票、普通发票、电子发票等均算）。\n"
+                            f"items 只需一条结果。\n"
+                            f"请严格返回 JSON，不要包含 markdown 代码块或其他文本。\n\n"
+                            f"文件内容：\n{ocr_text[:3000]}"
+                        )
+                    )
+                ]
+            )
+            result = _parse_llm_json(resp.content, InvoiceResultList)
+            return result.items[0].is_invoice if result.items else False
+        except Exception as e:
+            _logger.warning("[发票识别] OCR 文字判断失败 %s: %s，降级文件名判断", file_name, e)
+            return any(kw in file_name.lower() for kw in ["发票", "invoice", "fapiao", "receipt"])
 
     mime, _ = _mimetypes.guess_type(file_name)
     if not mime:
