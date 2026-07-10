@@ -28,6 +28,18 @@ export class AiService {
 
   constructor(private readonly grpcClient: GrpcClientService) {}
 
+  async extractReimbursementForm(files: string[]): Promise<unknown> {
+    const res = await this.grpcClient.executeGraph({
+      input: '[[reimbursement_form_extract]]',
+      files,
+    });
+    if (!res.success) {
+      throw new Error(res.error || '识别失败');
+    }
+    const output = JSON.parse(res.output) as { result?: unknown };
+    return output.result ?? output;
+  }
+
   chatStream(
     input: string,
     files?: string[],

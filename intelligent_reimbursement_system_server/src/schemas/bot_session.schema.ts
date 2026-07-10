@@ -66,6 +66,9 @@ export class BotRecognizedItem {
   file_key?: string;
 
   @Prop()
+  attachment_id?: string;
+
+  @Prop()
   local_temp_path?: string;
 }
 

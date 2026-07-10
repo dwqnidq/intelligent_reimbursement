@@ -42,6 +42,27 @@ export class FileService {
       throw new BadRequestException('文件类型参数无效');
     }
 
+    return this.uploadBuffer({
+      buffer: file.buffer,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      userId,
+      type,
+    });
+  }
+
+  async uploadBuffer(params: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+    userId: string;
+    type?: string;
+  }) {
+    const type = params.type ?? 'attachment';
+    if (!['avatar', 'attachment'].includes(type)) {
+      throw new BadRequestException('文件类型参数无效');
+    }
+
     const token = this.getUploadToken();
     const qiniuConfig = new qiniu.conf.Config();
     const zone = (qiniu as unknown as Record<string, Record<string, unknown>>)
@@ -50,15 +71,15 @@ export class FileService {
     const formUploader = new qiniu.form_up.FormUploader(qiniuConfig);
     const putExtra = new qiniu.form_up.PutExtra();
 
-    const ext = path.extname(file.originalname);
-    const dir = file.mimetype === 'application/pdf' ? 'pdf' : 'image';
+    const ext = path.extname(params.originalname);
+    const dir = params.mimetype === 'application/pdf' ? 'pdf' : 'image';
     const key = `${dir}/${Date.now()}_${this.generateRandomString()}${ext}`;
 
     const result = await new Promise<{ key: string }>((resolve, reject) => {
       void formUploader.put(
         token,
         key,
-        file.buffer,
+        params.buffer,
         putExtra,
         (
           err: Error | undefined,
@@ -78,11 +99,11 @@ export class FileService {
     const record = await this.fileModel.create({
       type,
       url,
-      original_name: file.originalname,
-      size: file.size,
-      mime_type: file.mimetype,
-      uploader: userId,
-      uid: userId,
+      original_name: params.originalname,
+      size: params.buffer.length,
+      mime_type: params.mimetype,
+      uploader: params.userId,
+      uid: params.userId,
     });
 
     return { id: record._id, url };

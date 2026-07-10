@@ -457,7 +457,7 @@ export class UserService {
     return departmentIds[0];
   }
 
-  private async syncFeishuDepartmentAndEmployee(params: {
+  async syncFeishuDepartmentAndEmployee(params: {
     userId: string;
     openId: string;
     name: string;
@@ -521,6 +521,70 @@ export class UserService {
         ...(deptId ? { dept_id: deptId } : {}),
       });
     }
+  }
+
+  async ensureUserFromFeishuOpenId(params: {
+    openId: string;
+    name?: string;
+    email?: string;
+    mobile?: string;
+    avatar_url?: string;
+  }): Promise<User> {
+    const { openId, name, email, mobile, avatar_url } = params;
+    const feishuUser = await this.feishuUserModel.findOne({ open_id: openId });
+    let user = feishuUser?.uid
+      ? await this.userModel.findById(feishuUser.uid)
+      : null;
+
+    const normalizedEmail =
+      email?.trim().toLowerCase() || `${openId}@feishu.local`;
+    const defaultRoleId = await this.getDefaultEmployeeRoleId();
+
+    if (!user && normalizedEmail) {
+      user = await this.userModel.findOne({ email: normalizedEmail });
+    }
+    if (!user) {
+      const generatedPassword = randomBytes(24).toString('hex');
+      const username = `feishu_${openId}`;
+      user = await this.userModel.create({
+        username,
+        password: generatedPassword,
+        email: normalizedEmail,
+        real_name: name || '飞书用户',
+        phone: mobile || '',
+        avatar: avatar_url || '',
+        roles: [defaultRoleId],
+        auth_provider: 'feishu',
+        password_login_enabled: false,
+      });
+    }
+
+    await this.feishuUserModel.findOneAndUpdate(
+      { open_id: openId },
+      {
+        open_id: openId,
+        name: name || user.real_name,
+        email: normalizedEmail,
+        mobile,
+        avatar_url,
+        uid: String(user._id),
+      },
+      { upsert: true, returnDocument: 'after' },
+    );
+
+    try {
+      await this.syncFeishuDepartmentAndEmployee({
+        userId: String(user._id),
+        openId,
+        name: name || user.real_name,
+        mobile: mobile || '',
+        avatar_url: avatar_url || '',
+      });
+    } catch (err) {
+      console.error('飞书部门/员工同步失败:', err);
+    }
+
+    return user;
   }
 
   async feishuLogin(code: string): Promise<string> {

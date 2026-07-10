@@ -31,5 +31,6 @@ import { ApprovalRecordModule } from '../approval-record/approval-record.module'
   ],
   controllers: [ReimbursementController],
   providers: [ReimbursementService],
+  exports: [ReimbursementService],
 })
 export class ReimbursementModule {}

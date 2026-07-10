@@ -15,6 +15,6 @@ import { Role, RoleSchema } from '../../schemas/role.schema';
   ],
   controllers: [AiController],
   providers: [AiService, GrpcClientService],
-  exports: [AiService],
+  exports: [AiService, GrpcClientService],
 })
 export class AiModule {}
