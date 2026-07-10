@@ -18,6 +18,7 @@ import { RoleModule } from './modules/role/role.module';
 import { PermissionModule } from './modules/permission/permission.module';
 import { MenuModule } from './modules/menu/menu.module';
 import { CompanyModule } from './modules/company/company.module';
+import { FeishuBotModule } from './modules/feishu-bot/feishu-bot.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { CompanyModule } from './modules/company/company.module';
     PermissionModule,
     MenuModule,
     CompanyModule,
+    FeishuBotModule,
   ],
 })
 export class AppModule {}
