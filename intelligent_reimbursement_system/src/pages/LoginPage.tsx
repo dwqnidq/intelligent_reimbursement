@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { login } from "../api/user";
 import type { LoginParams } from "../api/user";
 import { useAuthStore } from "../store/useAuthStore";
+import { resolvePostLoginPath } from "../utils/authNavigation";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -25,22 +26,11 @@ export default function LoginPage() {
         menus: res.menus,
       });
       message.success("登录成功");
-      const findFirstPath = (menus: typeof res.menus): string | null => {
-        for (const m of menus) {
-          if (m.path) return m.path;
-          if (m.children?.length) {
-            const found = findFirstPath(m.children);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
       const from =
-        (location.state as { from?: Location })?.from?.pathname ??
-        (res.user.password_login_enabled === false ? "/password-setup" : null) ??
-        findFirstPath(res.menus) ??
-        "/";
-      navigate(from, { replace: true });
+        (location.state as { from?: Location })?.from?.pathname ?? null;
+      navigate(resolvePostLoginPath(res.user, res.menus, from), {
+        replace: true,
+      });
     } catch {
       // 错误已由拦截器统一提示
     } finally {
@@ -172,6 +162,7 @@ export default function LoginPage() {
             onClick={() => {
               const appId = import.meta.env.VITE_FEISHU_APP_ID;
               const redirectUri = import.meta.env.VITE_REDIRECT_URI;
+              console.log('APPID', appId, 'REDIRECT_URI', redirectUri);
               window.location.href = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?app_id=${appId}&redirect_uri=${redirectUri}`;
             }}
           >

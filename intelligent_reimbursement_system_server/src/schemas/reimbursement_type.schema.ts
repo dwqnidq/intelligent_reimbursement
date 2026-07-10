@@ -55,6 +55,9 @@ export class ReimbursementType extends Document {
   @Prop({ required: true, unique: true })
   code: string;
 
+  @Prop({ required: true, unique: true })
+  name: string;
+
   @Prop({ required: true })
   label: string;
 

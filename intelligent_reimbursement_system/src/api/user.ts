@@ -12,6 +12,9 @@ export interface UserInfo {
   email: string;
   avatar?: string;
   password_login_enabled?: boolean;
+  payment_account?: string;
+  company_id?: string;
+  company_name?: string;
 }
 
 export interface MenuItem {
@@ -69,3 +72,23 @@ export const changePassword = (params: {
 
 export const setupPassword = (params: { new_password: string }) =>
   http.patch<void>("/users/password/setup", params);
+
+export const updateProfile = (params: { username: string; email: string }) =>
+  http.patch<{ user: UserInfo }>("/users/profile", params);
+
+export const updateProfileSetup = (params: {
+  company_id: string;
+  payment_account: string;
+}) =>
+  http.patch<{
+    company_id: string;
+    company_name: string;
+    payment_account: string;
+    user: UserInfo;
+  }>("/users/profile-setup", params);
+
+export const updatePaymentAccount = (params: { payment_account: string }) =>
+  http.patch<{ payment_account: string; user: UserInfo }>(
+    "/users/payment-account",
+    params,
+  );

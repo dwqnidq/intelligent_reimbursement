@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
 import http from "../api/http";
+import type { MenuItem } from "../api/user";
+import { resolvePostLoginPath } from "../utils/authNavigation";
 
 export default function SetTokenPage() {
   const navigate = useNavigate();
@@ -10,7 +12,6 @@ export default function SetTokenPage() {
   useEffect(() => {
     (async () => {
       try {
-        // 纯 Cookie 模式：依赖浏览器自动携带 access_token
         const res = await http.get<{
           token: string;
           refreshToken: string;
@@ -20,30 +21,25 @@ export default function SetTokenPage() {
             real_name: string;
             email: string;
             avatar: string;
+            password_login_enabled?: boolean;
+            payment_account?: string;
           };
           permissions: string[];
-          menus: unknown[];
+          menus: MenuItem[];
         }>("/users/auth/feishu/session");
         setAuth({
           token: res.token ?? "",
           refreshToken: res.refreshToken ?? "",
           user: res.user,
           permissions: res.permissions,
-          menus: res.menus as never,
+          menus: res.menus,
         });
-        if (res.user.password_login_enabled === false) {
-          navigate("/password-setup", { replace: true });
-          return;
-        }
+        window.location.replace(resolvePostLoginPath(res.user, res.menus));
       } catch {
         navigate("/login", { replace: true });
-        return;
       }
-
-      // 替换历史记录，避免保留中转页
-      window.location.replace("/");
     })();
-  }, []);
+  }, [navigate, setAuth]);
 
   return (
     <div className="min-h-screen bg-[var(--bg-page)] flex flex-col items-center justify-center gap-3">

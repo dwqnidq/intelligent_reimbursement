@@ -10,6 +10,11 @@ export class CreateDepartmentDto {
   @IsString()
   code: string;
 
+  @ApiPropertyOptional({ description: '上级部门 ID，根部门不传' })
+  @IsOptional()
+  @IsString()
+  parent_id?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

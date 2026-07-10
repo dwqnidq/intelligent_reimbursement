@@ -15,6 +15,18 @@ export class Reimbursement extends Document {
   @Prop()
   category_name: string;
 
+  @Prop({ required: true })
+  department_name: string;
+
+  @Prop({ required: true })
+  payment_account: string;
+
+  @Prop({ required: true })
+  company_id: string;
+
+  @Prop({ required: true })
+  company_name: string;
+
   @Prop({ required: true, min: 0 })
   amount: number;
 
@@ -47,6 +59,19 @@ export class Reimbursement extends Document {
 
   @Prop({ default: false })
   has_approval_flow: boolean;
+
+  @Prop({ default: '', index: true })
+  invoice_number: string;
 }
 
 export const ReimbursementSchema = SchemaFactory.createForClass(Reimbursement);
+ReimbursementSchema.index(
+  { invoice_number: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      invoice_number: { $type: 'string', $gt: '' },
+      status: { $in: ['pending', 'approved'] },
+    },
+  },
+);

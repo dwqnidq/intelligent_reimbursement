@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -10,6 +11,7 @@ import * as ExcelJS from 'exceljs';
 import { Reimbursement } from '../../schemas/reimbursement_records.schema';
 import { ReimbursementType } from '../../schemas/reimbursement_type.schema';
 import { User } from '../../schemas/user.schema';
+import { InvoiceInfo } from '../../schemas/invoice_info.schema';
 import { CreateReimbursementDto } from './dto/create-reimbursement.dto';
 import { ApproveReimbursementDto } from './dto/approve-reimbursement.dto';
 import { SearchReimbursementDto } from './dto/search-reimbursement.dto';
@@ -77,7 +79,7 @@ interface ReimbursementTreeGroup {
 }
 
 @Injectable()
-export class ReimbursementService {
+export class ReimbursementService implements OnModuleInit {
   constructor(
     @InjectModel(Reimbursement.name)
     private reimbursementModel: Model<Reimbursement>,
@@ -85,8 +87,84 @@ export class ReimbursementService {
     private typeModel: Model<ReimbursementType>,
     @InjectModel(User.name)
     private userModel: Model<User>,
+    @InjectModel(InvoiceInfo.name)
+    private invoiceInfoModel: Model<InvoiceInfo>,
     private approvalRecordService: ApprovalRecordService,
   ) {}
+
+  async onModuleInit() {
+    await this.invoiceInfoModel.syncIndexes();
+  }
+
+  private resolveInvoiceNumber(dto: CreateReimbursementDto): string {
+    return (
+      dto.invoice_info?.invoice_number?.trim() ||
+      dto.invoice_number?.trim() ||
+      ''
+    );
+  }
+
+  private async assertInvoiceNumberAvailable(invoiceNumber: string) {
+    const normalized = invoiceNumber.trim();
+    if (!normalized) return;
+
+    const inInvoiceInfos = await this.invoiceInfoModel
+      .findOne({ invoice_number: normalized })
+      .select('_id')
+      .lean();
+    if (inInvoiceInfos) {
+      throw new BadRequestException(
+        `该发票已上传，发票号码「${normalized}」不可重复提交`,
+      );
+    }
+
+    const legacyDup = await this.reimbursementModel
+      .findOne({
+        invoice_number: normalized,
+        status: { $in: ['pending', 'approved'] },
+      })
+      .select('_id status')
+      .lean();
+    if (legacyDup) {
+      throw new BadRequestException(
+        `该发票已上传，发票号码「${normalized}」不可重复提交`,
+      );
+    }
+  }
+
+  async isInvoiceNumberAvailable(invoiceNumber: string) {
+    const normalized = invoiceNumber.trim();
+    if (!normalized) {
+      return { available: true, invoice_number: '' };
+    }
+
+    const inInvoiceInfos = await this.invoiceInfoModel
+      .findOne({ invoice_number: normalized })
+      .select('_id')
+      .lean();
+    if (inInvoiceInfos) {
+      return {
+        available: false,
+        invoice_number: normalized,
+        message: `该发票已上传，发票号码「${normalized}」不可重复提交`,
+      };
+    }
+
+    const legacyDup = await this.reimbursementModel
+      .findOne({
+        invoice_number: normalized,
+        status: { $in: ['pending', 'approved'] },
+      })
+      .select('_id status')
+      .lean();
+    return {
+      available: !legacyDup,
+      invoice_number: normalized,
+      message: legacyDup
+        ? `该发票已上传，发票号码「${normalized}」不可重复提交`
+        : undefined,
+    };
+  }
 
   /**
    * 请求体为数组：每一项为一次「报销包」（含 applicant_name、category、attachments、apply_date、details[]）。
@@ -99,8 +177,18 @@ export class ReimbursementService {
 
     // 同一次请求共用一个 submission_batch_id
     const submissionBatchId = new Types.ObjectId().toHexString();
+    const invoiceNumbersInBatch = new Set<string>();
     const allIds: string[] = [];
     for (const dto of dtos) {
+      const inv = this.resolveInvoiceNumber(dto);
+      if (inv) {
+        if (invoiceNumbersInBatch.has(inv)) {
+          throw new BadRequestException(
+            `同一次提交中发票号码「${inv}」重复，请合并为一条报销`,
+          );
+        }
+        invoiceNumbersInBatch.add(inv);
+      }
       const { ids } = await this.insertRecordsForSinglePayload(
         userId,
         dto,
@@ -121,6 +209,22 @@ export class ReimbursementService {
     if (!user) throw new NotFoundException('用户不存在');
     if (user.real_name !== dto.applicant_name) {
       throw new ForbiddenException('申请人姓名与账号不符');
+    }
+
+    const paymentAccount = (user.payment_account ?? '').trim();
+    if (!paymentAccount) {
+      throw new BadRequestException('请先在个人中心填写收款账户');
+    }
+
+    const companyId = (user.company_id ?? '').trim();
+    const companyName = (user.company_name ?? '').trim();
+    if (!companyId || !companyName) {
+      throw new BadRequestException('请先在个人中心选择所属公司');
+    }
+
+    const departmentName = (dto.department_name ?? '').trim();
+    if (!departmentName) {
+      throw new BadRequestException('请选择部门');
     }
 
     const categoryType = await this.typeModel
@@ -144,8 +248,13 @@ export class ReimbursementService {
     ).over_limit_threshold;
 
     const attachmentIds = (dto.attachments || []).map((id) => String(id));
+    const invoiceNumber = this.resolveInvoiceNumber(dto);
+    if (invoiceNumber) {
+      await this.assertInvoiceNumberAvailable(invoiceNumber);
+    }
 
     const ids: string[] = [];
+    let invoiceInfoCreated = false;
     for (const detail of dto.details) {
       const detailObj = detail as Record<string, unknown>;
       const calculatedAmount = this.calcAmount(categoryForCalc, detailObj);
@@ -161,6 +270,11 @@ export class ReimbursementService {
         applicant: userId,
         category: dto.category,
         category_name: categoryType.label,
+        department_name: departmentName,
+        payment_account: paymentAccount,
+        company_id: companyId,
+        company_name: companyName,
+        invoice_number: invoiceNumber,
         amount,
         is_over_limit,
         detail: detailObj,
@@ -168,6 +282,28 @@ export class ReimbursementService {
         apply_date: dto.apply_date,
       });
       ids.push(String(record._id));
+
+      if (invoiceNumber && !invoiceInfoCreated) {
+        try {
+          await this.invoiceInfoModel.create({
+            invoice_number: invoiceNumber,
+            invoice_title: (dto.invoice_info?.invoice_title ?? '').trim(),
+            invoice_date: (dto.invoice_info?.invoice_date ?? '').trim(),
+            issuer: (dto.invoice_info?.issuer ?? '').trim(),
+            reimbursement_id: String(record._id),
+            uploaded_by: userId,
+          });
+          invoiceInfoCreated = true;
+        } catch (err: unknown) {
+          const code = (err as { code?: number })?.code;
+          if (code === 11000) {
+            throw new BadRequestException(
+              `该发票已上传，发票号码「${invoiceNumber}」不可重复提交`,
+            );
+          }
+          throw err;
+        }
+      }
 
       // Trigger approval flow
       const typeCode = (categoryType as unknown as { code?: string }).code;

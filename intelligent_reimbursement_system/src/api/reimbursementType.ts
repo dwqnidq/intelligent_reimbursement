@@ -25,6 +25,7 @@ export interface ExportFieldPayload {
 
 export interface CreateReimbursementTypeParams {
   code: string;
+  name: string;
   label: string;
   remark?: string;
   formula?: string;
@@ -43,6 +44,7 @@ export const deleteReimbursementType = (id: string) =>
 
 export interface UpdateReimbursementTypeParams {
   code?: string;
+  name?: string;
   label?: string;
   formula?: string;
   over_limit_threshold?: number;

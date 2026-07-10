@@ -25,6 +25,7 @@ export interface ExportField {
 export interface ReimbursementType {
   _id: string;
   code: string;
+  name: string;
   label: string;
   fields: TypeField[];
   export_fields: ExportField[];
@@ -37,6 +38,10 @@ export interface ReimbursementRecord {
   submission_batch_id?: string;
   category: string;
   applicant_name?: string;
+  department_name?: string;
+  payment_account?: string;
+  company_id?: string;
+  company_name?: string;
   amount: number;
   total_price?: number;
   is_over_limit?: boolean;
@@ -78,13 +83,23 @@ export interface ReimbursementTreeResult {
 }
 
 /** 与 Nest CreateReimbursementDto 一致，为请求体数组中的单项 */
+export interface InvoiceInfoParams {
+  invoice_number?: string;
+  invoice_title?: string;
+  invoice_date?: string;
+  issuer?: string;
+}
+
 export interface CreateReimbursementParams {
   applicant_name: string;
   category: string;
+  department_name: string;
   /** 该包内每条 detail 对应数据库一条记录，至少 1 条 */
   details: Record<string, unknown>[];
   attachments: string[];
   apply_date: string;
+  invoice_number?: string;
+  invoice_info?: InvoiceInfoParams;
 }
 
 export interface CreateReimbursementResult {
@@ -116,6 +131,12 @@ export const getReimbursementTreeList = (params?: ReimbursementListParams) =>
   http.get<ReimbursementTreeResult>("/reimbursements/tree", { params });
 
 /** 请求体为数组：每项一包；前端多行表单通常映射为 [{..., details:[row1]}, {..., details:[row2]}, ...] */
+export const checkInvoiceNumber = (number: string) =>
+  http.get<{ available: boolean; invoice_number: string; message?: string }>(
+    "/reimbursements/invoice-check",
+    { params: { number } },
+  );
+
 export const createReimbursement = (payload: CreateReimbursementParams[]) =>
   http.post<CreateReimbursementResult>("/reimbursements", payload);
 

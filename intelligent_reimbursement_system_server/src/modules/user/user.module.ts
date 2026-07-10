@@ -11,6 +11,7 @@ import { Employee, EmployeeSchema } from '../../schemas/employee.schema';
 import { Department, DepartmentSchema } from '../../schemas/department.schema';
 import { AuthModule } from '../auth/auth.module';
 import { FileModule } from '../file/file.module';
+import { CompanyModule } from '../company/company.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { FileModule } from '../file/file.module';
     ]),
     AuthModule,
     FileModule,
+    CompanyModule,
   ],
   controllers: [UserController],
   providers: [UserService],

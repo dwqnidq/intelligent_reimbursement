@@ -30,7 +30,7 @@ export class ReimbursementTypeController {
     return this.service.findAll(userId);
   }
 
-  @ApiOperation({ summary: '创建报销类型（code 和 label 不可重复）' })
+  @ApiOperation({ summary: '创建报销类型（code 和 name 不可重复，label 可重复）' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post()

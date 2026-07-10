@@ -6,6 +6,7 @@ import type {
 
 export interface AIReimbursementTypeDraft {
   code: string;
+  name: string;
   label: string;
   formula?: string;
   over_limit_threshold?: number;

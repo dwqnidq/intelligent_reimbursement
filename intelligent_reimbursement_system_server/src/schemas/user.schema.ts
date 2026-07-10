@@ -25,6 +25,15 @@ export class User extends Document {
   @Prop()
   department: string;
 
+  @Prop({ default: '' })
+  payment_account: string;
+
+  @Prop({ default: '' })
+  company_id: string;
+
+  @Prop({ default: '' })
+  company_name: string;
+
   @Prop({ default: 1, enum: [0, 1] })
   status: number;
 

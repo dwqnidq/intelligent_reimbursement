@@ -67,6 +67,12 @@ export class ReimbursementController {
     return this.service.getTreeList(userId, query);
   }
 
+  @ApiOperation({ summary: '检查发票号码是否已报销（去重）' })
+  @Get('invoice-check')
+  checkInvoiceNumber(@Query('number') number: string) {
+    return this.service.isInvoiceNumberAvailable(number ?? '');
+  }
+
   @ApiOperation({
     summary: '提交报销申请',
     description:

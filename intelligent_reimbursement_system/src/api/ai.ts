@@ -19,6 +19,11 @@ export interface AiReimbursementFormExtractRow {
 	fill_error?: string;
 	is_suggested_type?: boolean;
 	suggested_type_code?: string | null;
+	invoice_number?: string;
+	invoice_title?: string;
+	invoice_date?: string;
+	issuer?: string;
+	invoice_duplicate?: boolean;
 }
 
 export type AiReimbursementFormExtractPayload =

@@ -14,6 +14,7 @@ import ApprovalHistoryPage from "../pages/ApprovalHistoryPage";
 import RoleManage from "../pages/RoleManage";
 import PermissionManage from "../pages/PermissionManage";
 import MenuManage from "../pages/MenuManage";
+import CompanyManage from "../pages/CompanyManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -31,4 +32,5 @@ export const componentMap: Record<string, ComponentType> = {
   RoleManage,
   PermissionManage,
   MenuManage,
+  CompanyManage,
 };

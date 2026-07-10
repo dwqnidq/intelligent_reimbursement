@@ -38,6 +38,7 @@ function normalizeTypeDrafts(data: unknown): AIReimbursementTypeDraft[] {
     const obj = data as Record<string, unknown>;
     if (
       "code" in obj &&
+      "name" in obj &&
       "label" in obj &&
       "fields" in obj &&
       "export_fields" in obj
@@ -49,6 +50,7 @@ function normalizeTypeDrafts(data: unknown): AIReimbursementTypeDraft[] {
         v &&
         typeof v === "object" &&
         "code" in (v as Record<string, unknown>) &&
+        "name" in (v as Record<string, unknown>) &&
         "label" in (v as Record<string, unknown>) &&
         "fields" in (v as Record<string, unknown>),
     ) as AIReimbursementTypeDraft[];
@@ -74,7 +76,7 @@ function ReimbursementTypeCard({
       <div className="result-card-title">📋 共生成 {drafts.length} 个报销类型</div>
       {drafts.map((d, idx) => (
         <div key={`${d.code}-${idx}`} className="result-card-row">
-          {idx + 1}. {d.label}（{d.code}） · 字段 {(d.fields ?? []).length} 个
+          {idx + 1}. {d.name} · {d.label}（{d.code}） · 字段 {(d.fields ?? []).length} 个
         </div>
       ))}
     </div>

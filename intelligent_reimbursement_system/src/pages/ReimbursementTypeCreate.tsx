@@ -65,6 +65,7 @@ interface PendingCreateType {
   tempId: string;
   payload: {
     code: string;
+    name: string;
     label: string;
     remark?: string;
     formula?: string;
@@ -334,6 +335,7 @@ export default function ReimbursementTypeCreate() {
   const toCreatePayload = (
     draft: {
       code: string;
+      name: string;
       label: string;
       remark?: string;
       formula?: string;
@@ -344,6 +346,7 @@ export default function ReimbursementTypeCreate() {
     enabled = true,
   ) => ({
     code: draft.code,
+    name: draft.name,
     label: draft.label,
     remark: draft.remark,
     formula: draft.formula || undefined,
@@ -361,6 +364,7 @@ export default function ReimbursementTypeCreate() {
     const payload = drafts.map((d) =>
       toCreatePayload({
         code: d.code,
+        name: d.name,
         label: d.label,
         formula: d.formula,
         over_limit_threshold: d.over_limit_threshold,
@@ -375,6 +379,7 @@ export default function ReimbursementTypeCreate() {
     const one = drafts[0];
     form.setFieldsValue({
       code: one.code,
+      name: one.name,
       label: one.label,
       formula: one.formula ?? "",
       over_limit_threshold: one.over_limit_threshold,
@@ -490,6 +495,7 @@ export default function ReimbursementTypeCreate() {
     setEditType(record);
     editForm.setFieldsValue({
       code: record.code,
+      name: record.name,
       label: record.label,
       formula: record.formula ?? "",
       over_limit_threshold:
@@ -552,6 +558,7 @@ export default function ReimbursementTypeCreate() {
 
   const onAddPendingType = async (values: {
     code: string;
+    name: string;
     label: string;
     remark?: string;
     formula?: string;
@@ -559,21 +566,22 @@ export default function ReimbursementTypeCreate() {
     enabled: boolean;
   }) => {
     const code = values.code.trim();
+    const name = values.name.trim();
     const label = values.label.trim();
     if (typeList.find((t) => t.code === code)) {
       message.warning(`类型标识符「${values.code}」已存在`);
       return;
     }
-    if (typeList.find((t) => t.label === label)) {
-      message.warning(`类型名称「${values.label}」已存在`);
+    if (typeList.find((t) => t.name === name)) {
+      message.warning(`报销类型「${values.name}」已存在`);
       return;
     }
     if (pendingCreateTypes.find((x) => x.payload.code === code)) {
       message.warning(`待提交列表中已存在类型标识符「${code}」`);
       return;
     }
-    if (pendingCreateTypes.find((x) => x.payload.label === label)) {
-      message.warning(`待提交列表中已存在类型名称「${label}」`);
+    if (pendingCreateTypes.find((x) => x.payload.name === name)) {
+      message.warning(`待提交列表中已存在报销类型「${name}」`);
       return;
     }
     if (!validateFields(fields)) return;
@@ -585,6 +593,7 @@ export default function ReimbursementTypeCreate() {
         tempId: `${Date.now()}-${Math.random()}`,
         payload: {
           code,
+          name,
           label,
           remark: values.remark,
           formula: values.formula || undefined,
@@ -595,7 +604,7 @@ export default function ReimbursementTypeCreate() {
         },
       },
     ]);
-    message.success(`已添加「${label}」到待提交列表`);
+    message.success(`已添加「${name}」到待提交列表`);
     form.resetFields();
     form.setFieldValue("enabled", true);
     setFields([]);
@@ -867,6 +876,7 @@ export default function ReimbursementTypeCreate() {
 
   const onEditFinish = async (values: {
     code: string;
+    name: string;
     label: string;
     formula?: string;
     over_limit_threshold?: number;
@@ -880,6 +890,7 @@ export default function ReimbursementTypeCreate() {
     try {
       await updateReimbursementType(editType._id, {
         code: values.code,
+        name: values.name,
         label: values.label,
         formula: values.formula || undefined,
         over_limit_threshold: values.over_limit_threshold ?? undefined,
@@ -1241,14 +1252,23 @@ export default function ReimbursementTypeCreate() {
                 },
               ]}
             >
-              <Input placeholder="如 purchase、travel" />
+              <Input placeholder="如 welfare_fee、travel_fee" />
             </Form.Item>
             <Form.Item
-              label="类型名称"
-              name="label"
-              rules={[{ required: true, message: "请输入类型名称" }]}
+              label="报销类型"
+              name="name"
+              tooltip="业务类型名称，用于 AI 识别匹配，不可重复"
+              rules={[{ required: true, message: "请输入报销类型" }]}
             >
-              <Input placeholder="如 采购报销、差旅报销" />
+              <Input placeholder="如 餐费报销、差旅报销" />
+            </Form.Item>
+            <Form.Item
+              label="展示名称"
+              name="label"
+              tooltip="前端展示用名称，可与其他类型重复"
+              rules={[{ required: true, message: "请输入展示名称" }]}
+            >
+              <Input placeholder="如 福利费、差旅费" />
             </Form.Item>
             <Form.Item label="备注" name="remark">
               <TextArea rows={2} placeholder="选填" />
@@ -1383,8 +1403,15 @@ export default function ReimbursementTypeCreate() {
                       }
                     />
                     <Input
+                      value={item.payload.name}
+                      placeholder="报销类型"
+                      onChange={(e) =>
+                        updatePendingType(item.tempId, { name: e.target.value })
+                      }
+                    />
+                    <Input
                       value={item.payload.label}
-                      placeholder="类型名称"
+                      placeholder="展示名称"
                       onChange={(e) =>
                         updatePendingType(item.tempId, { label: e.target.value })
                       }
@@ -1533,7 +1560,8 @@ export default function ReimbursementTypeCreate() {
           size="middle"
           columns={[
             { title: "标识符", dataIndex: "code" },
-            { title: "名称", dataIndex: "label" },
+            { title: "报销类型", dataIndex: "name" },
+            { title: "展示名称", dataIndex: "label" },
             {
               title: "字段数",
               dataIndex: "fields",
@@ -1598,7 +1626,7 @@ export default function ReimbursementTypeCreate() {
 
       {/* 详情弹窗 */}
       <Modal
-        title={`类型详情 · ${detailType?.label ?? ""}`}
+        title={`类型详情 · ${detailType?.name ?? ""}`}
         open={!!detailType}
         onCancel={() => setDetailType(null)}
         footer={<Button onClick={() => setDetailType(null)}>关闭</Button>}
@@ -1610,7 +1638,10 @@ export default function ReimbursementTypeCreate() {
               <Descriptions.Item label="标识符">
                 {detailType.code}
               </Descriptions.Item>
-              <Descriptions.Item label="名称">
+              <Descriptions.Item label="报销类型">
+                {detailType.name}
+              </Descriptions.Item>
+              <Descriptions.Item label="展示名称">
                 {detailType.label}
               </Descriptions.Item>
             </Descriptions>
@@ -1704,7 +1735,7 @@ export default function ReimbursementTypeCreate() {
       {/* 编辑弹窗 */}
       <Modal
 
-        title={`修改报销类型 · ${editType?.label ?? ""}`}
+        title={`修改报销类型 · ${editType?.name ?? ""}`}
         open={!!editType}
         onCancel={() => {
           setEditType(null);
@@ -1729,14 +1760,23 @@ export default function ReimbursementTypeCreate() {
                   },
                 ]}
               >
-                <Input placeholder="如 purchase、travel" />
+                <Input placeholder="如 welfare_fee、travel_fee" />
               </Form.Item>
               <Form.Item
-                label="类型名称"
-                name="label"
-                rules={[{ required: true, message: "请输入类型名称" }]}
+                label="报销类型"
+                name="name"
+                tooltip="业务类型名称，用于 AI 识别匹配，不可重复"
+                rules={[{ required: true, message: "请输入报销类型" }]}
               >
-                <Input placeholder="如 采购报销、差旅报销" />
+                <Input placeholder="如 餐费报销、差旅报销" />
+              </Form.Item>
+              <Form.Item
+                label="展示名称"
+                name="label"
+                tooltip="前端展示用名称，可与其他类型重复"
+                rules={[{ required: true, message: "请输入展示名称" }]}
+              >
+                <Input placeholder="如 福利费、差旅费" />
               </Form.Item>
               <Form.Item
                 label="计算公式"

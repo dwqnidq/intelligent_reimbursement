@@ -25,6 +25,9 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
+import { UpdateProfileSetupDto } from './dto/update-profile-setup.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FileService } from '../file/file.service';
@@ -106,6 +109,17 @@ export class UserController {
     return this.userService.getProfile(userId);
   }
 
+  @ApiOperation({ summary: '更新昵称与邮箱' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  updateProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.userService.updateProfile(userId, dto);
+  }
+
   @ApiOperation({ summary: '修改密码' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -115,6 +129,28 @@ export class UserController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.userService.changePassword(userId, dto);
+  }
+
+  @ApiOperation({ summary: '更新公司与收款账户（首次登录设置）' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile-setup')
+  updateProfileSetup(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateProfileSetupDto,
+  ) {
+    return this.userService.updateProfileSetup(userId, dto);
+  }
+
+  @ApiOperation({ summary: '更新收款账户' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('payment-account')
+  updatePaymentAccount(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdatePaymentAccountDto,
+  ) {
+    return this.userService.updatePaymentAccount(userId, dto);
   }
 
   @ApiOperation({ summary: '设置登录密码（飞书账号首次设置）' })

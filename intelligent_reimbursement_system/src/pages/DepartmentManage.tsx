@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Card,
   Table,
@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   Select,
+  TreeSelect,
   message,
   Popconfirm,
 } from "antd";
@@ -18,12 +19,35 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  buildDepartmentTreeOptions,
+  collectDepartmentDescendantIds,
 } from "../api/department";
 import type { Department, CreateDepartmentParams } from "../api/department";
 import { getEmployees } from "../api/employee";
 import type { Employee } from "../api/employee";
 
 const { TextArea } = Input;
+
+function resolveParentId(
+  parentId?: Department["parent_id"],
+): string | undefined {
+  if (!parentId) return undefined;
+  return typeof parentId === "string" ? parentId : parentId._id;
+}
+
+function findDepartmentById(
+  departments: Department[],
+  id: string,
+): Department | undefined {
+  for (const dept of departments) {
+    if (dept._id === id) return dept;
+    if (dept.children?.length) {
+      const found = findDepartmentById(dept.children, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
 
 export default function DepartmentManage() {
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -33,14 +57,23 @@ export default function DepartmentManage() {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
-  // 员工搜索相关
   const [employeeOptions, setEmployeeOptions] = useState<Employee[]>([]);
   const [employeeLoading, setEmployeeLoading] = useState(false);
+
+  const parentTreeOptions = useMemo(() => {
+    if (!editingDept) return buildDepartmentTreeOptions(departments);
+    const excludeIds = new Set([editingDept._id]);
+    const fullDept = findDepartmentById(departments, editingDept._id);
+    if (fullDept) {
+      collectDepartmentDescendantIds(fullDept).forEach((id) => excludeIds.add(id));
+    }
+    return buildDepartmentTreeOptions(departments, excludeIds);
+  }, [departments, editingDept]);
 
   const fetchDepartments = async () => {
     setLoading(true);
     try {
-      const res = await getDepartments();
+      const res = await getDepartments({ tree: true });
       const list = Array.isArray(res)
         ? res
         : ((res as unknown as { data?: Department[] }).data ?? []);
@@ -54,7 +87,6 @@ export default function DepartmentManage() {
     fetchDepartments();
   }, []);
 
-  // 搜索员工
   const handleEmployeeSearch = useCallback(async (keyword?: string) => {
     setEmployeeLoading(true);
     try {
@@ -68,7 +100,6 @@ export default function DepartmentManage() {
     }
   }, []);
 
-  // 打开新增弹窗
   const openCreateModal = () => {
     setEditingDept(null);
     form.resetFields();
@@ -77,19 +108,18 @@ export default function DepartmentManage() {
     setModalOpen(true);
   };
 
-  // 打开编辑弹窗
   const openEditModal = (record: Department) => {
     setEditingDept(record);
     form.resetFields();
     form.setFieldsValue({
       name: record.name,
       code: record.code,
+      parent_id: resolveParentId(record.parent_id),
       manager_id: record.manager_id?._id,
       description: record.description ?? "",
       enabled: record.status === 1,
       sort: record.sort,
     });
-    // 如果有负责人，预填到选项中
     if (record.manager_id) {
       setEmployeeOptions([
         {
@@ -108,10 +138,10 @@ export default function DepartmentManage() {
     setModalOpen(true);
   };
 
-  // 提交表单（新增/编辑）
   const handleSubmit = async (values: {
     name: string;
     code: string;
+    parent_id?: string;
     manager_id?: string;
     description?: string;
     enabled: boolean;
@@ -122,6 +152,7 @@ export default function DepartmentManage() {
       const params: CreateDepartmentParams = {
         name: values.name.trim(),
         code: values.code.trim(),
+        parent_id: values.parent_id || undefined,
         manager_id: values.manager_id || undefined,
         description: values.description?.trim() || undefined,
         status: values.enabled ? 1 : 0,
@@ -145,7 +176,6 @@ export default function DepartmentManage() {
     }
   };
 
-  // 切换状态
   const handleToggleStatus = async (record: Department) => {
     try {
       await updateDepartment(record._id, { status: record.status === 1 ? 0 : 1 });
@@ -156,7 +186,6 @@ export default function DepartmentManage() {
     }
   };
 
-  // 删除部门
   const handleDelete = async (id: string) => {
     try {
       await deleteDepartment(id);
@@ -177,6 +206,18 @@ export default function DepartmentManage() {
       title: "部门编码",
       dataIndex: "code",
       key: "code",
+    },
+    {
+      title: "上级部门",
+      key: "parent",
+      render: (_: unknown, record: Department) => {
+        const parent = record.parent_id;
+        if (!parent) {
+          return <span className="text-[var(--text-tertiary)]">根部门</span>;
+        }
+        const parentName = typeof parent === "string" ? "-" : parent.name;
+        return parentName;
+      },
     },
     {
       title: "负责人",
@@ -290,6 +331,15 @@ export default function DepartmentManage() {
               rules={[{ required: true, message: "请输入部门编码" }]}
             >
               <Input placeholder="请输入部门编码" />
+            </Form.Item>
+
+            <Form.Item label="上级部门" name="parent_id">
+              <TreeSelect
+                allowClear
+                placeholder="不选则为根部门"
+                treeData={parentTreeOptions}
+                treeDefaultExpandAll
+              />
             </Form.Item>
 
             <Form.Item label="负责人" name="manager_id">

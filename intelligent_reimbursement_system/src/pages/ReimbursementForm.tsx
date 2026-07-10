@@ -17,10 +17,13 @@ import type { UploadFile } from 'antd';
 import {
 	createReimbursement,
 	getReimbursementTypes,
+	checkInvoiceNumber,
 	type CreateReimbursementResult,
+	type InvoiceInfoParams,
 } from '../api/reimbursement';
 import type { ReimbursementType, TypeField, FieldType } from '../api/reimbursement';
 import { useAuthStore } from '../store/useAuthStore';
+import { getDepartmentNameOptions } from '../api/department';
 import { uploadFile } from '../api/file';
 import FilePreviewModal from '../components/FilePreviewModal';
 import ReimbursementTypeAttachmentRemarkSection from '../components/ReimbursementTypeAttachmentRemarkSection';
@@ -121,25 +124,54 @@ function serializeDetailRow(
 	return out;
 }
 
-/** 仅保留识别类型已与系统类型名称完全一致的明细行，用于提交。 */
+function findReimbursementTypeByRecognition(
+	types: ReimbursementType[],
+	recognitionLabel: string,
+): ReimbursementType | undefined {
+	const key = recognitionLabel.trim();
+	if (!key) return undefined;
+	return types.find(
+		(t) => t.label.trim() === key || t.name.trim() === key || t.code.trim() === key,
+	);
+}
+
+/** 仅保留识别结果已与系统类型匹配的明细行，用于提交。 */
 function collectMatchedSubmissionRows(
 	lineItems: Record<string, unknown>[] | undefined,
 	selectedFields: TypeField[],
 	lineItemMeta: LineItemCardMeta[],
 	fileSlotSummaries: FileSlotRecognitionSummary[],
 	types: ReimbursementType[],
-): { detail: Record<string, unknown>; categoryId: string; fileIndex: number }[] {
+): {
+	detail: Record<string, unknown>;
+	categoryId: string;
+	fileIndex: number;
+	invoiceNumber?: string;
+	invoiceInfo?: InvoiceInfoParams;
+}[] {
 	const rows = Array.isArray(lineItems) ? lineItems : [];
-	const out: { detail: Record<string, unknown>; categoryId: string; fileIndex: number }[] = [];
+	const out: {
+		detail: Record<string, unknown>;
+		categoryId: string;
+		fileIndex: number;
+		invoiceNumber?: string;
+		invoiceInfo?: InvoiceInfoParams;
+	}[] = [];
 	for (let i = 0; i < rows.length; i++) {
 		const meta = lineItemMeta[i];
 		if (!meta) continue;
 		const summary = fileSlotSummaries.find((s) => s.fileIndex === meta.fileIndex);
-		if (!summary?.matched || !summary.label) continue;
-		const cat = types.find((t) => t.label.trim() === summary.label.trim());
+		if (!summary?.matched || !summary.label || summary.invoiceDuplicate || summary.invoiceBatchDuplicate) continue;
+		const cat = findReimbursementTypeByRecognition(types, summary.label);
 		if (!cat?._id) continue;
 		const detail = serializeDetailRow(rows[i] ?? {}, selectedFields);
-		out.push({ detail, categoryId: cat._id, fileIndex: meta.fileIndex });
+		out.push({
+			detail,
+			categoryId: cat._id,
+			fileIndex: meta.fileIndex,
+			invoiceNumber: summary.invoiceNumber,
+			invoiceInfo: summary.invoiceInfo,
+		});
 	}
 	return out;
 }
@@ -191,62 +223,257 @@ type LineItemCardMeta = { fileIndex: number; indexInFile: number };
 
 type FileSlotRecognitionSummary = {
 	fileIndex: number;
+	fileName?: string;
 	label: string;
 	rowCount: number;
 	matched: boolean;
 	isSuggested: boolean;
 	over_limit_threshold?: number | null;
 	fillError?: string;
+	invoiceNumber?: string;
+	invoiceTitle?: string;
+	invoiceDate?: string;
+	issuer?: string;
+	invoiceDuplicate?: boolean;
+	invoiceBatchDuplicate?: boolean;
+	invoiceInfo?: InvoiceInfoParams;
+};
+
+type InvoiceDuplicateIssue = {
+	kind: 'uploaded' | 'batch';
+	invoiceNumber: string;
+	fileNames: string[];
+	fileIndices: number[];
 };
 
 function buildFileSlotSummaries(
 	groups: AiReimbursementFormExtractRow[][],
 	types: ReimbursementType[],
+	fileNames: string[] = [],
 ): FileSlotRecognitionSummary[] {
-	return groups.map((g, fi) => {
+	const summaries = groups.map((g, fi) => {
+		const duplicateRow = g.find((r) => r.invoice_duplicate);
 		const rowsWithFields = g.filter((r) => (r.fields?.length ?? 0) > 0);
-		const headRow = rowsWithFields[0] ?? g[0];
+		const headRow = duplicateRow ?? rowsWithFields[0] ?? g[0];
 		const label = String(headRow?.label ?? '').trim();
 		const rowCount = rowsWithFields.length;
 		const fillError = g.find((r) => r.fill_error)?.fill_error;
+		const invoiceDuplicate = Boolean(duplicateRow?.invoice_duplicate ?? headRow?.invoice_duplicate);
 		const isSuggested =
 			rowsWithFields.some((r) => r.is_suggested_type === true) ||
 			Boolean(headRow?.is_suggested_type);
-		const matched = Boolean(label && types.some((t) => t.label.trim() === label));
+		const matched = Boolean(
+			!invoiceDuplicate && label && findReimbursementTypeByRecognition(types, label),
+		);
 		const over_limit_threshold =
 			typeof headRow?.over_limit_threshold === 'number' ? headRow.over_limit_threshold : null;
+		const invoiceNumber = String(headRow?.invoice_number ?? '').trim() || undefined;
+		const invoiceTitle = String(headRow?.invoice_title ?? '').trim() || undefined;
+		const invoiceDate = String(headRow?.invoice_date ?? '').trim() || undefined;
+		const issuer = String(headRow?.issuer ?? '').trim() || undefined;
+		const invoiceInfo: InvoiceInfoParams | undefined = invoiceNumber
+			? {
+					invoice_number: invoiceNumber,
+					...(invoiceTitle ? { invoice_title: invoiceTitle } : {}),
+					...(invoiceDate ? { invoice_date: invoiceDate } : {}),
+					...(issuer ? { issuer: issuer } : {}),
+				}
+			: undefined;
 		return {
 			fileIndex: fi + 1,
+			fileName: fileNames[fi] || undefined,
 			label,
 			rowCount,
 			matched,
 			isSuggested,
 			over_limit_threshold,
 			fillError,
+			invoiceNumber,
+			invoiceTitle,
+			invoiceDate,
+			issuer,
+			invoiceDuplicate,
+			invoiceInfo,
 		};
+	});
+	return markBatchDuplicateSlots(summaries);
+}
+
+function markBatchDuplicateSlots(
+	summaries: FileSlotRecognitionSummary[],
+): FileSlotRecognitionSummary[] {
+	const seen = new Map<string, number>();
+	return summaries.map((summary) => {
+		if (summary.invoiceDuplicate) return summary;
+		const invoiceNumber = summary.invoiceNumber?.trim();
+		if (!invoiceNumber) return summary;
+		if (seen.has(invoiceNumber)) {
+			return { ...summary, invoiceBatchDuplicate: true };
+		}
+		seen.set(invoiceNumber, summary.fileIndex);
+		return summary;
 	});
 }
 
+function analyzeInvoiceDuplicateIssues(summaries: FileSlotRecognitionSummary[]): {
+	issues: InvoiceDuplicateIssue[];
+	indicesToRemove: number[];
+} {
+	const indicesToRemove = new Set<number>();
+	const uploadedByInv = new Map<string, { fileNames: string[]; fileIndices: number[] }>();
+	const batchByInv = new Map<string, { fileNames: string[]; fileIndices: number[] }>();
+	const batchFirstSeen = new Map<string, { fileIndex: number; fileName: string }>();
+
+	for (const summary of summaries) {
+		const displayName = summary.fileName || `文件 ${summary.fileIndex}`;
+		const invoiceNumber = summary.invoiceNumber?.trim() || '—';
+		if (summary.invoiceDuplicate) {
+			indicesToRemove.add(summary.fileIndex);
+			const entry = uploadedByInv.get(invoiceNumber) ?? { fileNames: [], fileIndices: [] };
+			entry.fileNames.push(displayName);
+			entry.fileIndices.push(summary.fileIndex);
+			uploadedByInv.set(invoiceNumber, entry);
+		}
+	}
+
+	for (const summary of summaries) {
+		if (summary.invoiceDuplicate) continue;
+		const invoiceNumber = summary.invoiceNumber?.trim();
+		if (!invoiceNumber) continue;
+		const displayName = summary.fileName || `文件 ${summary.fileIndex}`;
+		const first = batchFirstSeen.get(invoiceNumber);
+		if (first) {
+			indicesToRemove.add(summary.fileIndex);
+			const entry = batchByInv.get(invoiceNumber) ?? {
+				fileNames: [first.fileName],
+				fileIndices: [first.fileIndex],
+			};
+			entry.fileNames.push(displayName);
+			entry.fileIndices.push(summary.fileIndex);
+			batchByInv.set(invoiceNumber, entry);
+		} else {
+			batchFirstSeen.set(invoiceNumber, {
+				fileIndex: summary.fileIndex,
+				fileName: displayName,
+			});
+		}
+	}
+
+	const issues: InvoiceDuplicateIssue[] = [];
+	for (const [invoiceNumber, data] of uploadedByInv) {
+		issues.push({
+			kind: 'uploaded',
+			invoiceNumber,
+			fileNames: data.fileNames,
+			fileIndices: data.fileIndices,
+		});
+	}
+	for (const [invoiceNumber, data] of batchByInv) {
+		issues.push({
+			kind: 'batch',
+			invoiceNumber,
+			fileNames: data.fileNames,
+			fileIndices: data.fileIndices,
+		});
+	}
+
+	return {
+		issues,
+		indicesToRemove: [...indicesToRemove].sort((a, b) => a - b),
+	};
+}
+
+function formatInvoiceDuplicateIssuesMessage(issues: InvoiceDuplicateIssue[]): string {
+	return issues
+		.map((issue) => {
+			const files = issue.fileNames.join('、');
+			if (issue.kind === 'uploaded') {
+				return `发票号码 ${issue.invoiceNumber} 已上传，文件：${files}`;
+			}
+			return `发票号码 ${issue.invoiceNumber} 重复，文件：${files}`;
+		})
+		.join('；');
+}
+
+function normalizeUploadFileName(name: string): string {
+	return name.trim().toLowerCase();
+}
+
+async function assertInvoiceNumbersSubmittable(
+	summaries: FileSlotRecognitionSummary[],
+): Promise<string | null> {
+	const { issues } = analyzeInvoiceDuplicateIssues(summaries);
+	if (issues.length > 0) {
+		return formatInvoiceDuplicateIssuesMessage(issues);
+	}
+	const numbers = [
+		...new Set(
+			summaries
+				.map((s) => s.invoiceNumber?.trim())
+				.filter((n): n is string => Boolean(n)),
+		),
+	];
+	for (const number of numbers) {
+		const res = await checkInvoiceNumber(number);
+		if (!res.available) {
+			return res.message ?? `发票号码「${number}」已提交过报销，不可重复上传`;
+		}
+	}
+	return null;
+}
+
 function FileSlotRecognitionBanner({ s }: { s: FileSlotRecognitionSummary }) {
+	const isDuplicate = Boolean(s.invoiceDuplicate || s.invoiceBatchDuplicate);
 	return (
-		<div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-page)] px-3 py-2.5 text-sm text-[var(--text-primary)]">
+		<div
+			className={`rounded-lg border px-3 py-2.5 text-sm ${
+				isDuplicate
+					? 'border-red-300 bg-red-50 text-red-700'
+					: 'border-[var(--border-color)] bg-[var(--bg-page)] text-[var(--text-primary)]'
+			}`}
+		>
 			<span className="leading-relaxed">
-				文件 {s.fileIndex}：
-				{s.label || s.rowCount > 0 ? (
-					<>
+				{s.fileName ? (
+					<span className="font-medium">{s.fileName}</span>
+				) : (
+					<span>文件 {s.fileIndex}</span>
+				)}
+				{s.invoiceDuplicate ? (
+					<span className="ml-2 font-medium">
+						{s.fillError ??
+							`该发票已上传${s.invoiceNumber ? `，发票号码：${s.invoiceNumber}` : ''}`}
+					</span>
+				) : s.invoiceBatchDuplicate ? (
+					<span className="ml-2 font-medium">
+						发票号码重复{s.invoiceNumber ? `（${s.invoiceNumber}）` : ''}，请移除重复文件
+					</span>
+				) : s.label || s.rowCount > 0 ? (
+					<span className="ml-2">
 						识别类型：
 						<span className="font-medium">{s.label || '—'}</span>
 						{s.rowCount > 0 ? (
 							<span className="text-[var(--text-secondary)]"> · 共 {s.rowCount} 条明细</span>
 						) : null}
-					</>
+					</span>
 				) : (
-					<span className="text-[var(--text-tertiary)]">未识别到有效明细</span>
+					<span className="ml-2 text-[var(--text-tertiary)]">未识别到有效明细</span>
 				)}
-				{s.fillError ? (
+				{!isDuplicate && s.invoiceNumber ? (
+					<span className="text-[var(--text-secondary)] ml-2">· 发票号 {s.invoiceNumber}</span>
+				) : null}
+				{!isDuplicate && s.invoiceTitle ? (
+					<span className="text-[var(--text-secondary)] ml-2">· 抬头 {s.invoiceTitle}</span>
+				) : null}
+				{!isDuplicate && s.invoiceDate ? (
+					<span className="text-[var(--text-secondary)] ml-2">· 开票日期 {s.invoiceDate}</span>
+				) : null}
+				{!isDuplicate && s.issuer ? (
+					<span className="text-[var(--text-secondary)] ml-2">· 开票人 {s.issuer}</span>
+				) : null}
+				{!isDuplicate && s.fillError ? (
 					<span className="text-orange-500 ml-1">（{s.fillError}）</span>
 				) : null}
-				{s.matched ? (
+				{isDuplicate ? null : s.matched ? (
 					<span className="text-green-500 ml-2">（已匹配系统类型）</span>
 				) : s.isSuggested ? (
 					<span className="text-amber-500 ml-2">
@@ -401,7 +628,7 @@ function buildManualSyncFromRecognition(
 		const summary = m ? summaries.find((s) => s.fileIndex === m.fileIndex) : undefined;
 		const cat =
 			summary?.matched && summary.label
-				? types.find((t) => t.label.trim() === summary.label.trim()) ?? null
+				? findReimbursementTypeByRecognition(types, summary.label) ?? null
 				: null;
 		const typeFields = cat ? [...cat.fields].sort((a, b) => a.sort - b.sort) : sortedAi;
 		const fields: Record<string, unknown> = {};
@@ -431,6 +658,8 @@ export default function ReimbursementForm() {
 	const [fillMode, setFillMode] = useState<FillMode>('smart');
 	const [types, setTypes] = useState<ReimbursementType[]>([]);
 	const [categoryLoading, setCategoryLoading] = useState(false);
+	const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+	const [departmentLoading, setDepartmentLoading] = useState(false);
 	const [selectedFields, setSelectedFields] = useState<TypeField[]>([]);
 	const [fileList, setFileList] = useState<UploadFile[]>([]);
 	const [submitting, setSubmitting] = useState(false);
@@ -451,6 +680,7 @@ export default function ReimbursementForm() {
 	typesRef.current = types;
 	const fileListRef = useRef<UploadFile[]>([]);
 	fileListRef.current = fileList;
+	const extractGroupsRef = useRef<AiReimbursementFormExtractRow[][]>([]);
 	const lineItemMetaRef = useRef<LineItemCardMeta[]>([]);
 	lineItemMetaRef.current = lineItemMeta;
 	const fileSlotSummariesRef = useRef<FileSlotRecognitionSummary[]>([]);
@@ -463,6 +693,11 @@ export default function ReimbursementForm() {
 		setPreviewMime(mime);
 	};
 	const user = useAuthStore((s) => s.user);
+	const profileReady = Boolean(
+		user?.payment_account?.trim() &&
+			user?.company_id?.trim() &&
+			user?.company_name?.trim(),
+	);
 
 	const hasMatchedLineItemsToSubmit = useMemo(() => {
 		if (lineItemMeta.length === 0 || selectedFields.length === 0) return false;
@@ -470,20 +705,64 @@ export default function ReimbursementForm() {
 			const meta = lineItemMeta[i];
 			const summary = fileSlotSummaries.find((s) => s.fileIndex === meta.fileIndex);
 			if (!summary?.matched || !summary.label) continue;
-			if (types.some((t) => t.label.trim() === summary.label.trim())) return true;
+			if (findReimbursementTypeByRecognition(types, summary.label)) return true;
 		}
 		return false;
 	}, [lineItemMeta, fileSlotSummaries, selectedFields.length, types]);
 
-	const applyExtractResult = useCallback(
-		(payload: AiReimbursementFormExtractPayload) => {
-			const groups = normalizeExtractGroups(payload);
-			const summaries = buildFileSlotSummaries(groups, typesRef.current);
+	const invoiceDuplicateAnalysis = useMemo(
+		() => analyzeInvoiceDuplicateIssues(fileSlotSummaries),
+		[fileSlotSummaries],
+	);
+
+	const smartSubmitBlockReason = useMemo(() => {
+		if (!profileReady) return '请先在个人中心选择公司并填写收款账户';
+		if (departmentLoading) return '部门列表加载中，请稍候';
+		if (fileList.length === 0) return '请先上传票据文件';
+		if (extracting) return '正在识别票据，请稍候';
+		if (selectedFields.length === 0 || lineItemMeta.length === 0) {
+			return '请先点击「开始识别」并完成字段提取';
+		}
+		if (!hasMatchedLineItemsToSubmit) {
+			return extractIsSuggested
+				? '当前为建议类型，需在后台创建对应报销类型且识别名称一致后才能提交'
+				: '没有已匹配系统类型的明细，请核对识别结果与后台报销类型名称是否一致';
+		}
+		if (invoiceDuplicateAnalysis.issues.length > 0) {
+			return '存在重复发票，请先去除重复文件';
+		}
+		return null;
+	}, [
+		profileReady,
+		departmentLoading,
+		fileList.length,
+		extracting,
+		selectedFields.length,
+		lineItemMeta.length,
+		hasMatchedLineItemsToSubmit,
+		extractIsSuggested,
+		invoiceDuplicateAnalysis.issues.length,
+	]);
+
+	const manualSubmitBlockReason = useMemo(() => {
+		if (!profileReady) return '请先在个人中心选择公司并填写收款账户';
+		if (departmentLoading) return '部门列表加载中，请稍候';
+		if (categoryLoading) return '报销类型加载中，请稍候';
+		return null;
+	}, [profileReady, departmentLoading, categoryLoading]);
+
+	const applyExtractGroups = useCallback(
+		(groups: AiReimbursementFormExtractRow[][], options?: { silent?: boolean }) => {
+			extractGroupsRef.current = groups;
+			const fileNames = fileListRef.current.map((f) => f.name);
+			const summaries = buildFileSlotSummaries(groups, typesRef.current, fileNames);
 			setFileSlotSummaries(summaries);
 
-			for (const g of groups) {
-				for (const r of g) {
-					if (r.fill_error) message.warning(r.fill_error);
+			if (!options?.silent) {
+				for (const g of groups) {
+					for (const r of g) {
+						if (r.fill_error && !r.invoice_duplicate) message.warning(r.fill_error);
+					}
 				}
 			}
 
@@ -493,11 +772,14 @@ export default function ReimbursementForm() {
 				indexInFile: number;
 			}[] = [];
 			groups.forEach((g, fi) => {
+				const fileIndex = fi + 1;
+				const summary = summaries.find((s) => s.fileIndex === fileIndex);
+				if (summary?.invoiceDuplicate || summary?.invoiceBatchDuplicate) return;
 				let li = 0;
 				for (const r of g) {
 					if ((r.fields?.length ?? 0) > 0) {
 						li += 1;
-						flat.push({ row: r, fileIndex: fi + 1, indexInFile: li });
+						flat.push({ row: r, fileIndex, indexInFile: li });
 					}
 				}
 			});
@@ -515,10 +797,15 @@ export default function ReimbursementForm() {
 				setSelectedFields([]);
 				setExtractIsSuggested(false);
 				smartForm.setFieldValue('lineItems', []);
-				const matched = typesRef.current.find((t) => t.label.trim() === label) ?? null;
-				if (label && !matched) {
+				const matched = typesRef.current.find(
+					(t) =>
+						t.label.trim() === label ||
+						t.name.trim() === label ||
+						t.code.trim() === label,
+				) ?? null;
+				if (!options?.silent && label && !matched) {
 					message.warning(
-						`未在系统中找到与「${label}」完全一致的报销类型名称，提交前请确认已在后台配置该类型`,
+						`未在系统中找到展示名称为「${label}」的报销类型，提交前请确认已在后台配置该类型`,
 					);
 				}
 				return;
@@ -526,7 +813,7 @@ export default function ReimbursementForm() {
 
 			const anySuggested = dataRows.some((r) => r.is_suggested_type === true);
 			setExtractIsSuggested(anySuggested);
-			if (anySuggested) {
+			if (!options?.silent && anySuggested) {
 				message.info(
 					'票据未匹配到系统已有报销类型，已根据内容生成「建议类型」表单；提交前请在后台创建对应类型并在本页选择',
 				);
@@ -535,7 +822,6 @@ export default function ReimbursementForm() {
 			const itemMetaLine = flat.map((x) => ({ fileIndex: x.fileIndex, indexInFile: x.indexInFile }));
 			setLineItemMeta(itemMetaLine);
 
-			// Build per-file field templates
 			const perFileFields = new Map<number, TypeField[]>();
 			let unionFields: TypeField[] = [];
 			const unionKeys = new Set<string>();
@@ -558,10 +844,16 @@ export default function ReimbursementForm() {
 			setFileSlotFields(perFileFields);
 			setSelectedFields(unionFields);
 
-			const matched = typesRef.current.find((t) => t.label.trim() === label) ?? null;
-			if (label && !matched && !anySuggested) {
+			const matched =
+				typesRef.current.find(
+					(t) =>
+						t.label.trim() === label ||
+						t.name.trim() === label ||
+						t.code.trim() === label,
+				) ?? null;
+			if (!options?.silent && label && !matched && !anySuggested) {
 				message.warning(
-					`未在系统中找到与「${label}」完全一致的报销类型名称，提交前请确认已在后台配置该类型`,
+					`未在系统中找到展示名称为「${label}」的报销类型，提交前请确认已在后台配置该类型`,
 				);
 			}
 
@@ -592,7 +884,16 @@ export default function ReimbursementForm() {
 		[smartForm, manualForm],
 	);
 
+	const applyExtractResult = useCallback(
+		(payload: AiReimbursementFormExtractPayload) => {
+			const groups = normalizeExtractGroups(payload);
+			applyExtractGroups(groups);
+		},
+		[applyExtractGroups],
+	);
+
 	const clearAiForm = useCallback(() => {
+		extractGroupsRef.current = [];
 		setLineItemMeta([]);
 		setFileSlotSummaries([]);
 		setFileSlotFields(new Map());
@@ -601,12 +902,57 @@ export default function ReimbursementForm() {
 		smartForm.setFieldValue('lineItems', []);
 	}, [smartForm]);
 
+	const handleRemoveDuplicateInvoiceFiles = useCallback(() => {
+		const { indicesToRemove } = analyzeInvoiceDuplicateIssues(
+			fileSlotSummariesRef.current,
+		);
+		if (indicesToRemove.length === 0) {
+			message.info('当前没有需要去除的重复发票文件');
+			return;
+		}
+
+		const removeSet = new Set(indicesToRemove);
+		const removedNames = fileSlotSummariesRef.current
+			.filter((s) => removeSet.has(s.fileIndex))
+			.map((s) => s.fileName || `文件 ${s.fileIndex}`);
+
+		fileListRef.current.forEach((file, index) => {
+			if (!removeSet.has(index + 1)) return;
+			const url = smartFileBlobUrlRef.current.get(file.uid);
+			if (url) URL.revokeObjectURL(url);
+			smartFileBlobUrlRef.current.delete(file.uid);
+		});
+
+		const nextFileList = fileListRef.current.filter((_, index) => !removeSet.has(index + 1));
+		const nextGroups = extractGroupsRef.current.filter((_, index) => !removeSet.has(index + 1));
+
+		setFileList(nextFileList);
+		extractGroupsRef.current = nextGroups;
+
+		if (nextFileList.length === 0 || nextGroups.length === 0) {
+			clearAiForm();
+			message.success(`已去除重复文件：${removedNames.join('、')}`);
+			return;
+		}
+
+		applyExtractGroups(nextGroups, { silent: true });
+		message.success(`已去除重复文件：${removedNames.join('、')}`);
+	}, [applyExtractGroups, clearAiForm]);
+
 	useEffect(() => {
 		setCategoryLoading(true);
 		getReimbursementTypes()
 			.then((data) => setTypes(data))
 			.catch(() => {})
 			.finally(() => setCategoryLoading(false));
+	}, []);
+
+	useEffect(() => {
+		setDepartmentLoading(true);
+		getDepartmentNameOptions()
+			.then((names) => setDepartmentOptions(names ?? []))
+			.catch(() => {})
+			.finally(() => setDepartmentLoading(false));
 	}, []);
 
 	useEffect(() => {
@@ -707,16 +1053,49 @@ export default function ReimbursementForm() {
 				message.error('未能获取智能填单结果，请重试或更换文件');
 			}
 		} catch {
-			message.error('智能识别服务异常，请稍后再试');
+			console.log('智能识别服务异常');
 		} finally {
 			setExtracting(false);
 		}
 	}, [fileList, applyExtractResult]);
 
+	const handleClearAllFiles = useCallback(() => {
+		smartFileBlobUrlRef.current.forEach((u) => URL.revokeObjectURL(u));
+		smartFileBlobUrlRef.current.clear();
+		setFileList([]);
+		clearAiForm();
+	}, [clearAiForm]);
+
 	const addLocalFiles = (files: FileList | File[]) => {
 		const arr = Array.from(files).filter(Boolean);
 		if (arr.length === 0) return;
-		const next = arr.map((file, i) => ({
+
+		const existingNames = new Set(
+			fileListRef.current.map((f) => normalizeUploadFileName(f.name)),
+		);
+		const toAdd: File[] = [];
+		const skipped: string[] = [];
+
+		for (const file of arr) {
+			const key = normalizeUploadFileName(file.name);
+			if (existingNames.has(key)) {
+				skipped.push(file.name);
+				continue;
+			}
+			existingNames.add(key);
+			toAdd.push(file);
+		}
+
+		if (skipped.length > 0) {
+			message.warning(
+				skipped.length === 1
+					? `文件「${skipped[0]}」已存在，已跳过`
+					: `以下文件已存在，已跳过：${skipped.join('、')}`,
+			);
+		}
+		if (toAdd.length === 0) return;
+
+		const next = toAdd.map((file, i) => ({
 			uid: `${Date.now()}-${i}-${file.name}`,
 			name: file.name,
 			status: 'done' as const,
@@ -742,6 +1121,7 @@ export default function ReimbursementForm() {
 
 	const onFinishManual = async (values: {
 		applicant: string;
+		department_name: string;
 		applyTime: dayjs.Dayjs | string;
 		manualItems?: {
 			categoryId: string;
@@ -752,6 +1132,10 @@ export default function ReimbursementForm() {
 		const manualItems = values.manualItems ?? [];
 		if (manualItems.length === 0) {
 			message.error('请至少添加一个报销项');
+			return;
+		}
+		if (!profileReady) {
+			message.error('请先在个人中心选择公司并填写收款账户');
 			return;
 		}
 
@@ -765,6 +1149,7 @@ export default function ReimbursementForm() {
 			const payload: {
 				applicant_name: string;
 				category: string;
+				department_name: string;
 				apply_date: string;
 				attachments: string[];
 				details: Record<string, unknown>[];
@@ -812,6 +1197,7 @@ export default function ReimbursementForm() {
 				payload.push({
 					applicant_name: values.applicant,
 					category: cat._id,
+					department_name: values.department_name,
 					apply_date: applyDate,
 					attachments: uploadedIds,
 					details: [detail],
@@ -838,10 +1224,17 @@ export default function ReimbursementForm() {
 
 	const onFinish = async (values: {
 		applicant: string;
+		department_name: string;
 		applyTime: dayjs.Dayjs | string;
 		lineItems?: Record<string, unknown>[];
 		remark?: string;
 	}) => {
+		if (!profileReady) {
+			message.error('请先在个人中心选择公司并填写收款账户');
+			return;
+		}
+		const invoiceError = await assertInvoiceNumbersSubmittable(fileSlotSummaries);
+		if (invoiceError) return;
 		setSubmitting(true);
 		try {
 			const uploadedIds: string[] = [];
@@ -889,7 +1282,7 @@ export default function ReimbursementForm() {
 				return;
 			}
 
-			const payload = matchedRows.map(({ detail, categoryId, fileIndex }) => {
+			const payload = matchedRows.map(({ detail, categoryId, fileIndex, invoiceNumber, invoiceInfo }) => {
 				const slotId =
 					uploadedIds.length > 0 && fileIndex >= 1
 						? uploadedIds[fileIndex - 1]
@@ -897,9 +1290,12 @@ export default function ReimbursementForm() {
 				return {
 					applicant_name: values.applicant,
 					category: categoryId,
+					department_name: values.department_name,
 					apply_date: applyDate,
 					attachments: slotId != null && slotId !== '' ? [slotId] : [],
 					details: [detail],
+					...(invoiceNumber ? { invoice_number: invoiceNumber } : {}),
+					...(invoiceInfo ? { invoice_info: invoiceInfo } : {}),
 				};
 			});
 
@@ -933,7 +1329,7 @@ export default function ReimbursementForm() {
 	};
 
 	const getSmartSummaryOverLimit = (summary: FileSlotRecognitionSummary): number | null => {
-		const matchedType = types.find((t) => t.label.trim() === summary.label.trim());
+		const matchedType = findReimbursementTypeByRecognition(types, summary.label);
 		return matchedType?.over_limit_threshold ?? summary.over_limit_threshold ?? null;
 	};
 
@@ -980,7 +1376,7 @@ export default function ReimbursementForm() {
 
 			{fillMode === 'smart' ? (
 			<div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-[420px]">
-				<div className="lg:w-[min(100%,380px)] shrink-0 flex flex-col gap-3">
+				<div className="lg:w-[min(100%,380px)] shrink-0 flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto">
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -1050,15 +1446,20 @@ export default function ReimbursementForm() {
 					)}
 
 					{fileList.length > 0 && (
-						<Button
-							type="primary"
-							block
-							loading={extracting}
-							disabled={extracting}
-							onClick={handleStartRecognition}
-						>
-							{extracting ? '识别中...' : '开始识别'}
-						</Button>
+						<div className="flex gap-2">
+							<Button
+								type="primary"
+								block
+								loading={extracting}
+								disabled={extracting}
+								onClick={handleStartRecognition}
+							>
+								{extracting ? '识别中...' : '开始识别'}
+							</Button>
+							<Button block disabled={extracting} onClick={handleClearAllFiles}>
+								一键清空
+							</Button>
+						</div>
 					)}
 				</div>
 
@@ -1091,6 +1492,35 @@ export default function ReimbursementForm() {
 										disabledDate={(d) => d.isAfter(dayjs(), 'day')}
 									/>
 								</Form.Item>
+
+								<Form.Item
+									label="部门"
+									name="department_name"
+									rules={[{ required: true, message: '请选择部门' }]}
+								>
+									<Select
+										showSearch
+										placeholder="请选择部门"
+										loading={departmentLoading}
+										options={departmentOptions.map((name) => ({
+											label: name,
+											value: name,
+										}))}
+										optionFilterProp="label"
+									/>
+								</Form.Item>
+
+								<Form.Item label="所属公司">
+									<Input
+										value={user?.company_name ?? ''}
+										disabled
+										placeholder="请先在登录后选择所属公司"
+									/>
+								</Form.Item>
+
+								<Form.Item label="收款账户">
+									<Input value={user?.payment_account ?? ''} disabled placeholder="请先在登录后填写收款账户" />
+								</Form.Item>
 							</div>
 
 							<div className="mb-3 text-sm text-[var(--text-secondary)] min-h-[22px]">
@@ -1110,6 +1540,26 @@ export default function ReimbursementForm() {
 									</span>
 								)}
 							</div>
+
+							{invoiceDuplicateAnalysis.issues.length > 0 && !extracting && (
+								<div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700 space-y-2">
+									{invoiceDuplicateAnalysis.issues.map((issue) => (
+										<div key={`${issue.kind}-${issue.invoiceNumber}-${issue.fileIndices.join('-')}`}>
+											{issue.kind === 'uploaded'
+												? `发票号码 ${issue.invoiceNumber} 已上传，文件：${issue.fileNames.join('、')}`
+												: `发票号码 ${issue.invoiceNumber} 重复，文件：${issue.fileNames.join('、')}`}
+										</div>
+									))}
+									<Button
+										size="small"
+										danger
+										disabled={extracting}
+										onClick={handleRemoveDuplicateInvoiceFiles}
+									>
+										去除重复文件
+									</Button>
+								</div>
+							)}
 
 							{fileList.length > 0 &&
 								!extracting &&
@@ -1213,14 +1663,23 @@ export default function ReimbursementForm() {
 							<Form.Item className="mt-2 mb-0">
 								<Button
 									type="primary"
-									htmlType="submit"
+									htmlType="button"
 									size="large"
 									className="w-full"
 									loading={submitting}
-									disabled={fileList.length === 0 || !hasMatchedLineItemsToSubmit}
+									onClick={() => {
+										if (smartSubmitBlockReason) {
+											message.warning(smartSubmitBlockReason);
+											return;
+										}
+										smartForm.submit();
+									}}
 								>
 									提交报销申请
 								</Button>
+								{smartSubmitBlockReason ? (
+									<p className="text-xs text-amber-600 mt-2 mb-0">{smartSubmitBlockReason}</p>
+								) : null}
 							</Form.Item>
 						</Form>
 					</Spin>
@@ -1254,6 +1713,35 @@ export default function ReimbursementForm() {
 								placeholder="请选择日期"
 								disabledDate={(d) => d.isAfter(dayjs(), 'day')}
 							/>
+						</Form.Item>
+
+						<Form.Item
+							label="部门"
+							name="department_name"
+							rules={[{ required: true, message: '请选择部门' }]}
+						>
+							<Select
+								showSearch
+								placeholder="请选择部门"
+								loading={departmentLoading}
+								options={departmentOptions.map((name) => ({
+									label: name,
+									value: name,
+								}))}
+								optionFilterProp="label"
+							/>
+						</Form.Item>
+
+						<Form.Item label="所属公司">
+							<Input
+								value={user?.company_name ?? ''}
+								disabled
+								placeholder="请先在登录后选择所属公司"
+							/>
+						</Form.Item>
+
+						<Form.Item label="收款账户">
+							<Input value={user?.payment_account ?? ''} disabled placeholder="请先在登录后填写收款账户" />
 						</Form.Item>
 					</div>
 					<Form.List name="manualItems">
@@ -1332,14 +1820,23 @@ export default function ReimbursementForm() {
 					<Form.Item className="mt-2 mb-0">
 						<Button
 							type="primary"
-							htmlType="submit"
+							htmlType="button"
 							size="large"
 							className="w-full"
 							loading={submitting}
-							disabled={categoryLoading}
+							onClick={() => {
+								if (manualSubmitBlockReason) {
+									message.warning(manualSubmitBlockReason);
+									return;
+								}
+								manualForm.submit();
+							}}
 						>
 							提交报销申请
 						</Button>
+						{manualSubmitBlockReason ? (
+							<p className="text-xs text-amber-600 mt-2 mb-0">{manualSubmitBlockReason}</p>
+						) : null}
 					</Form.Item>
 				</Form>
 			)}

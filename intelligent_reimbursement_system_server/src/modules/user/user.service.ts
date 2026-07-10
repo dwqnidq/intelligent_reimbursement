@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -19,6 +20,10 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
+import { UpdateProfileSetupDto } from './dto/update-profile-setup.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CompanyService } from '../company/company.service';
 
 interface PopulatedPermission {
   _id: string;
@@ -46,6 +51,7 @@ export class UserService {
     @InjectModel(Employee.name) private employeeModel: Model<Employee>,
     @InjectModel(Department.name) private deptModel: Model<Department>,
     private jwtService: JwtService,
+    private companyService: CompanyService,
   ) {}
 
   private signAccessToken(payload: { id: string; username: string }) {
@@ -57,6 +63,20 @@ export class UserService {
       { ...payload, type: 'refresh' },
       { expiresIn: '30d' },
     );
+  }
+
+  private toAuthUser(user: User) {
+    return {
+      id: user._id,
+      username: user.username,
+      real_name: user.real_name,
+      email: user.email,
+      avatar: user.avatar ?? '',
+      password_login_enabled: user.password_login_enabled,
+      payment_account: user.payment_account ?? '',
+      company_id: user.company_id ?? '',
+      company_name: user.company_name ?? '',
+    };
   }
 
   private async getDefaultEmployeeRoleId() {
@@ -185,14 +205,7 @@ export class UserService {
     return {
       token,
       refreshToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        real_name: user.real_name,
-        email: user.email,
-        avatar: user.avatar ?? '',
-        password_login_enabled: user.password_login_enabled,
-      },
+      user: this.toAuthUser(user),
       permissions,
       menus,
     };
@@ -205,6 +218,79 @@ export class UserService {
       .populate('roles');
     if (!user) throw new NotFoundException('用户不存在');
     return user;
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const username = dto.username.trim();
+    const email = dto.email.trim().toLowerCase();
+    if (!username) {
+      throw new BadRequestException('昵称不能为空');
+    }
+
+    const conflict = await this.userModel.findOne({
+      _id: { $ne: userId },
+      $or: [{ username }, { email }],
+    });
+    if (conflict) {
+      if (conflict.username === username) {
+        throw new ConflictException('昵称已被使用');
+      }
+      throw new ConflictException('邮箱已被使用');
+    }
+
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { $set: { username, email } },
+      { new: true },
+    );
+    if (!user) throw new NotFoundException('用户不存在');
+    return { user: this.toAuthUser(user) };
+  }
+
+  async updatePaymentAccount(userId: string, dto: UpdatePaymentAccountDto) {
+    const account = dto.payment_account.trim();
+    if (!account) {
+      throw new BadRequestException('收款账户不能为空');
+    }
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('用户不存在');
+    if (!user.company_id?.trim()) {
+      throw new BadRequestException('请先完成公司与收款账户设置');
+    }
+    user.payment_account = account;
+    await user.save();
+    return {
+      payment_account: user.payment_account,
+      user: this.toAuthUser(user),
+    };
+  }
+
+  async updateProfileSetup(userId: string, dto: UpdateProfileSetupDto) {
+    const company = await this.companyService.findByIdOrFail(
+      dto.company_id.trim(),
+    );
+    const account = dto.payment_account.trim();
+    if (!account) {
+      throw new BadRequestException('收款账户不能为空');
+    }
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          company_id: String(company._id),
+          company_name: company.name,
+          payment_account: account,
+        },
+      },
+      { new: true },
+    );
+    if (!user) throw new NotFoundException('用户不存在');
+    return {
+      company_id: user.company_id,
+      company_name: user.company_name,
+      payment_account: user.payment_account,
+      user: this.toAuthUser(user),
+    };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -262,6 +348,179 @@ export class UserService {
     );
     const data = (await res.json()) as { code: number; tenant_access_token?: string };
     return data.code === 0 ? data.tenant_access_token ?? null : null;
+  }
+
+  private async resolveManagerIdFromFeishuLeader(
+    leaderOpenId?: string,
+  ): Promise<string | undefined> {
+    if (!leaderOpenId) return undefined;
+    const feishuUser = await this.feishuUserModel.findOne({ open_id: leaderOpenId });
+    if (!feishuUser?.uid) return undefined;
+    const employee = await this.employeeModel.findOne({ uid: feishuUser.uid });
+    return employee ? String(employee._id) : undefined;
+  }
+
+  private async fetchFeishuDepartmentInfo(
+    openDepartmentId: string,
+    tenantToken: string,
+  ): Promise<
+    | {
+        name: string;
+        parentOpenDepartmentId: string | null;
+        leaderOpenId?: string;
+        sort: number;
+      }
+    | undefined
+  > {
+    const deptRes = await fetch(
+      `https://open.feishu.cn/open-apis/contact/v3/departments/${openDepartmentId}?department_id_type=open_department_id&user_id_type=open_id`,
+      { headers: { Authorization: `Bearer ${tenantToken}` } },
+    );
+    const deptData = (await deptRes.json()) as {
+      code: number;
+      data?: {
+        department?: {
+          name?: string;
+          parent_department_id?: string;
+          leader_user_id?: string;
+          order?: string;
+        };
+      };
+    };
+    if (deptData.code !== 0) return undefined;
+
+    const department = deptData.data?.department;
+    if (!department?.name) return undefined;
+
+    const parentId = department.parent_department_id;
+    return {
+      name: department.name,
+      parentOpenDepartmentId:
+        !parentId || parentId === '0' ? null : parentId,
+      leaderOpenId: department.leader_user_id,
+      sort: Number(department.order) || 0,
+    };
+  }
+
+  private async ensureLocalDepartmentFromFeishu(
+    openDepartmentId: string,
+    tenantToken: string,
+    visiting = new Set<string>(),
+  ): Promise<string | undefined> {
+    if (visiting.has(openDepartmentId)) return undefined;
+    visiting.add(openDepartmentId);
+
+    const info = await this.fetchFeishuDepartmentInfo(openDepartmentId, tenantToken);
+    if (!info) return undefined;
+
+    let parentLocalId: string | null = null;
+    if (info.parentOpenDepartmentId) {
+      parentLocalId =
+        (await this.ensureLocalDepartmentFromFeishu(
+          info.parentOpenDepartmentId,
+          tenantToken,
+          visiting,
+        )) ?? null;
+    }
+
+    let department = await this.deptModel.findOne({ name: info.name });
+    if (!department) {
+      const managerId = await this.resolveManagerIdFromFeishuLeader(info.leaderOpenId);
+      const deptCount = await this.deptModel.countDocuments();
+      department = await this.deptModel.create({
+        name: info.name,
+        code: `DEPT${String(deptCount + 1).padStart(3, '0')}`,
+        parent_id: parentLocalId,
+        manager_id: managerId,
+        status: 1,
+        sort: info.sort,
+      });
+    }
+
+    return String(department._id);
+  }
+
+  private async fetchFeishuUserPrimaryDepartmentOpenId(
+    openId: string,
+    tenantToken: string,
+  ): Promise<string | undefined> {
+    const userDetailRes = await fetch(
+      `https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`,
+      { headers: { Authorization: `Bearer ${tenantToken}` } },
+    );
+    const userDetail = (await userDetailRes.json()) as {
+      code: number;
+      data?: { user?: { department_ids?: string[] } };
+    };
+    if (userDetail.code !== 0) return undefined;
+    const departmentIds = userDetail.data?.user?.department_ids ?? [];
+    return departmentIds[0];
+  }
+
+  private async syncFeishuDepartmentAndEmployee(params: {
+    userId: string;
+    openId: string;
+    name: string;
+    mobile: string;
+    avatar_url: string;
+  }): Promise<void> {
+    const { userId, openId, name, mobile, avatar_url } = params;
+    const displayName = name || '飞书用户';
+
+    let deptId: string | undefined;
+    let deptName: string | undefined;
+    try {
+      const tenantToken = await this.getFeishuTenantToken();
+      if (tenantToken) {
+        const openDepartmentId = await this.fetchFeishuUserPrimaryDepartmentOpenId(
+          openId,
+          tenantToken,
+        );
+        if (openDepartmentId) {
+          deptId = await this.ensureLocalDepartmentFromFeishu(
+            openDepartmentId,
+            tenantToken,
+          );
+          if (deptId) {
+            const department = await this.deptModel.findById(deptId).select('name');
+            deptName = department?.name;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('获取飞书部门信息失败:', err);
+    }
+
+    const existingDept = deptName
+      ? await this.deptModel.findOne({ name: deptName })
+      : null;
+    const existingEmp = await this.employeeModel.findOne({
+      $or: [{ uid: userId }, { name: displayName }],
+    });
+
+    const hasDept = !!existingDept;
+    const hasEmployee = !!existingEmp;
+
+    if (deptName && hasDept && hasEmployee) {
+      return;
+    }
+
+    deptId = existingDept ? String(existingDept._id) : deptId;
+
+    if (!hasEmployee) {
+      const empCount = await this.employeeModel.countDocuments();
+      const employeeNo = `FE${String(empCount + 1).padStart(5, '0')}`;
+      await this.employeeModel.create({
+        employee_no: employeeNo,
+        name: displayName,
+        gender: 0,
+        phone: mobile || '',
+        avatar: avatar_url || '',
+        status: 1,
+        uid: userId,
+        ...(deptId ? { dept_id: deptId } : {}),
+      });
+    }
   }
 
   async feishuLogin(code: string): Promise<string> {
@@ -357,77 +616,20 @@ export class UserService {
       { upsert: true, returnDocument: 'after' },
     );
 
-    // 6. 获取飞书用户部门信息
-    let deptId: string | undefined;
+    // 6. 同步飞书部门与员工（已存在则跳过，缺失则创建）
     try {
-      const tenantToken = await this.getFeishuTenantToken();
-      if (tenantToken) {
-        // 获取用户部门列表
-        const userDetailRes = await fetch(
-          `https://open.feishu.cn/open-apis/contact/v3/users/${open_id}?user_id_type=open_id`,
-          { headers: { Authorization: `Bearer ${tenantToken}` } },
-        );
-        const userDetail = (await userDetailRes.json()) as {
-          code: number;
-          data?: { user?: { department_ids?: string[] } };
-        };
-        const departmentIds = userDetail.data?.user?.department_ids ?? [];
-
-        if (departmentIds.length > 0) {
-          // 获取第一个部门的详情
-          const deptRes = await fetch(
-            `https://open.feishu.cn/open-apis/contact/v3/departments/${departmentIds[0]}?department_id_type=open_department_id`,
-            { headers: { Authorization: `Bearer ${tenantToken}` } },
-          );
-          const deptData = (await deptRes.json()) as {
-            code: number;
-            data?: { department?: { name?: string; department_id?: string } };
-          };
-          const deptName = deptData.data?.department?.name;
-
-          if (deptName) {
-            // 查找或创建部门
-            let dept = await this.deptModel.findOne({ name: deptName });
-            if (!dept) {
-              const deptCount = await this.deptModel.countDocuments();
-              dept = await this.deptModel.create({
-                name: deptName,
-                code: `DEPT${String(deptCount + 1).padStart(3, '0')}`,
-                status: 1,
-                sort: 0,
-              });
-            }
-            deptId = String(dept._id);
-          }
-        }
-      }
-    } catch (err) {
-      // 部门同步失败不影响登录流程
-      console.error('飞书部门同步失败:', err);
-    }
-
-    // 7. 自动创建员工记录（如果不存在）
-    const existingEmp = await this.employeeModel.findOne({ uid: String(user._id) });
-    if (!existingEmp) {
-      const empCount = await this.employeeModel.countDocuments();
-      const employeeNo = `FE${String(empCount + 1).padStart(5, '0')}`;
-      await this.employeeModel.create({
-        employee_no: employeeNo,
-        name: name || user.real_name || '飞书用户',
-        gender: 0,
-        phone: mobile || '',
-        avatar: avatar_url || '',
-        status: 1,
-        uid: String(user._id),
-        ...(deptId ? { dept_id: deptId } : {}),
+      await this.syncFeishuDepartmentAndEmployee({
+        userId: String(user._id),
+        openId: open_id,
+        name: name || user.real_name,
+        mobile,
+        avatar_url,
       });
-    } else if (deptId && !existingEmp.dept_id) {
-      // 已有员工但没部门，补充部门
-      existingEmp.dept_id = deptId as any;
-      await existingEmp.save();
+    } catch (err) {
+      console.error('飞书部门/员工同步失败:', err);
     }
 
-    // 8. 基于主用户签发 token
+    // 7. 基于主用户签发 token
     return this.signAccessToken({
       id: String(user._id),
       username: user.username,
@@ -462,14 +664,7 @@ export class UserService {
     return {
       token,
       refreshToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        real_name: user.real_name,
-        email: user.email,
-        avatar: user.avatar ?? '',
-        password_login_enabled: user.password_login_enabled,
-      },
+      user: this.toAuthUser(user),
       permissions,
       menus,
     };

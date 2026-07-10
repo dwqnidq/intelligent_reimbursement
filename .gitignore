@@ -39,3 +39,6 @@ nestjs-concepts-demo
 
 # 禁用的子仓库（不提交）
 **/.git_disabled/
+
+# 文档
+docs/

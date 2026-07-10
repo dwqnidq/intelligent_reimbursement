@@ -9,6 +9,9 @@ export class Department extends Document {
   @Prop({ required: true, unique: true })
   code: string;
 
+  @Prop({ type: String, ref: 'Department', default: null })
+  parent_id: string | null;
+
   @Prop({ type: String, ref: 'Employee' })
   manager_id: string;
 

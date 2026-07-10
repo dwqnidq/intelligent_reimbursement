@@ -2,12 +2,14 @@
 import json
 import logging
 import mimetypes as _mimetypes
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from json_repair import repair_json
 from langchain_core.messages import HumanMessage
 
+from src.db.invoice_infos_repo import is_invoice_number_uploaded
 from src.db.reimbursement_types_repo import (
     assignments_list_to_field_map,
     build_form_result_array_from_db_values,
@@ -19,6 +21,136 @@ from src.llm import llm, llm_vision
 from src.models import InvoiceResultList, ReimbursementFormValuesExtract
 
 _logger = logging.getLogger(__name__)
+
+_INVOICE_NUMBER_PATTERNS = [
+    re.compile(r"发票号码[：:\s]*([0-9]{8,20})"),
+    re.compile(r"票据号码[：:\s]*([0-9]{8,20})"),
+    re.compile(r"Invoice\s*No\.?\s*[：:\s]*([0-9]{8,20})", re.IGNORECASE),
+]
+
+_INVOICE_TITLE_PATTERNS = [
+    re.compile(r"购买方[^\n]*?名\s*称[：:\s]*([^\n]{2,80})"),
+    re.compile(r"发票抬头[：:\s]*([^\n]{2,80})"),
+    re.compile(r"名\s*称[：:\s]*([^\n]{2,80})"),
+]
+
+_INVOICE_DATE_PATTERNS = [
+    re.compile(r"开票日期[：:\s]*(\d{4}[-年/]\d{1,2}[-月/]\d{1,2}日?)"),
+    re.compile(r"开票日期[：:\s]*(\d{4}\.\d{1,2}\.\d{1,2})"),
+]
+
+_INVOICE_ISSUER_PATTERNS = [
+    re.compile(r"开票人[：:\s]*([^\n\s]{1,20})"),
+]
+
+
+def extract_invoice_number_from_ocr(ocr_text: Optional[str]) -> str:
+    """从 OCR 正文用正则提取发票号码；LLM 未返回时的可靠兜底。"""
+    if not ocr_text or not ocr_text.strip():
+        return ""
+    for pattern in _INVOICE_NUMBER_PATTERNS:
+        match = pattern.search(ocr_text)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _normalize_invoice_date(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    text = text.replace("年", "-").replace("月", "-").replace("日", "").replace("/", "-").replace(".", "-")
+    parts = [p for p in text.split("-") if p]
+    if len(parts) < 3:
+        return raw.strip()
+    try:
+        y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+        return f"{y:04d}-{m:02d}-{d:02d}"
+    except ValueError:
+        return raw.strip()
+
+
+def extract_invoice_title_from_ocr(ocr_text: Optional[str]) -> str:
+    if not ocr_text or not ocr_text.strip():
+        return ""
+    for pattern in _INVOICE_TITLE_PATTERNS:
+        match = pattern.search(ocr_text)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def extract_invoice_date_from_ocr(ocr_text: Optional[str]) -> str:
+    if not ocr_text or not ocr_text.strip():
+        return ""
+    for pattern in _INVOICE_DATE_PATTERNS:
+        match = pattern.search(ocr_text)
+        if match:
+            return _normalize_invoice_date(match.group(1))
+    return ""
+
+
+def extract_invoice_issuer_from_ocr(ocr_text: Optional[str]) -> str:
+    if not ocr_text or not ocr_text.strip():
+        return ""
+    for pattern in _INVOICE_ISSUER_PATTERNS:
+        match = pattern.search(ocr_text)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _resolve_invoice_meta(
+    dumped: Dict[str, Any],
+    ocr_text: Optional[str],
+) -> Dict[str, str]:
+    inv = str(dumped.get("invoice_number") or "").strip()
+    if not inv:
+        inv = extract_invoice_number_from_ocr(ocr_text)
+
+    title = str(dumped.get("invoice_title") or "").strip()
+    if not title:
+        title = extract_invoice_title_from_ocr(ocr_text)
+
+    date_raw = str(dumped.get("invoice_date") or "").strip()
+    if date_raw:
+        date_val = _normalize_invoice_date(date_raw)
+    else:
+        date_val = extract_invoice_date_from_ocr(ocr_text)
+
+    issuer = str(dumped.get("issuer") or "").strip()
+    if not issuer:
+        issuer = extract_invoice_issuer_from_ocr(ocr_text)
+
+    return {
+        "invoice_number": inv,
+        "invoice_title": title,
+        "invoice_date": date_val,
+        "issuer": issuer,
+    }
+
+
+def _attach_invoice_meta_to_rows(
+    batch_for_file: List[Dict[str, Any]],
+    invoice_meta: Dict[str, str],
+) -> None:
+    for row in batch_for_file:
+        if isinstance(row, dict):
+            row.update(invoice_meta)
+
+
+def _duplicate_invoice_row(invoice_meta: Dict[str, str]) -> List[Dict[str, Any]]:
+    inv = invoice_meta.get("invoice_number", "")
+    return [
+        {
+            "label": "",
+            "fields": [],
+            "over_limit_threshold": 0,
+            "invoice_duplicate": True,
+            "fill_error": f"该发票已上传，发票号码：{inv}",
+            **invoice_meta,
+        }
+    ]
 
 
 def _parse_llm_json(raw: str, model_cls):
@@ -108,7 +240,7 @@ def _form_extract_prompt_with_db(
     if n_types >= 2:
         multi_type_rule = f"""
 **【多类型严格规则】** 当前启用类型共 **{n_types}** 种。你必须：
-- 同时填写 **code** 与 **label**，且二者必须来自**同一条**类型摘要记录（逐字与 JSON 一致）；
+- 同时填写 **code** 与 **name**，且二者必须来自**同一条**类型摘要记录（逐字与 JSON 一致）；
 - **禁止**因「上一文件」或「同批其它文件」已选某类型，就把本文件也归为该类——**每个文件单独判断**，互不影响。
 """
 
@@ -121,7 +253,7 @@ def _form_extract_prompt_with_db(
 2. **禁止惯性归类**：即使用户一次上传多份文件，**每一份**都要重新看内容选型；**禁止**默认与上一份相同。
 3. **证据来自本份**：选型理由只能来自当前 PDF/图片/文件名中的文字，不得套用其它文件的结论。
 {multi_type_rule}
-下方「类型摘要」JSON 含每种类型的 **code**（若有）、**label** 以及各字段的 **key**、**label**（中文名）。不含字段类型、选项等；服务端会按 key 从数据库补全并写入 value。
+下方「类型摘要」JSON 含每种类型的 **code**（若有）、**name**（报销类型业务名称）以及各字段的 **key**、**label**（中文名）。不含字段类型、选项等；服务端会按 name 从数据库匹配类型，并按 key 补全字段后返回展示用 label。
 
 类型摘要：
 {types_json}
@@ -130,11 +262,15 @@ def _form_extract_prompt_with_db(
 
 **A. 能明确归入某一已有类型**（本份材料与摘要中**某一条**的业务含义、字段语义一致）：
 - 设置 no_existing_type_match = false。
-- **code**、**label** 必须与所选摘要条目**完全一致**（{f"二者必填且同属一条；" if n_types >= 2 else "有 code 时建议填写以便精确匹配；仅一种类型时 code 可空。"}）
+- **code**、**name** 必须与所选摘要条目**完全一致**（{f"二者必填且同属一条；" if n_types >= 2 else "有 code 时建议填写以便精确匹配；仅一种类型时 code 可空。"}）
 - **items**：每条报销明细一项；每项 {{ "assignments": [ {{ "key": "...", "value": 识别值 }}, ... ] }}。
   - **key** 必须且只能来自**你所选那一条**摘要里的 **fields[].key**，禁止用其它类型的 key。
   - **value** 仅来自本份票据；无把握则不填该 key。
 - 多物品/多行拆多条 items；单条明细时 items 长度为 1；完全无法识别时 items 可为 []。
+- **invoice_number**：从本份票据识别发票号码（增值税/电子发票的发票号码）；无则留空字符串。
+- **invoice_title**：发票抬头（购买方名称/公司名称）；无则留空字符串。
+- **invoice_date**：开票日期，格式 YYYY-MM-DD；无则留空字符串。
+- **issuer**：开票人；无则留空字符串。
 
 **B. 无法合理归入任一已有类型**：
 - 设置 no_existing_type_match = true。
@@ -199,6 +335,20 @@ def _form_extract_one_file(
         resp = llm_vision.invoke([msg])
         parsed = _parse_llm_json(resp.content, ReimbursementFormValuesExtract)
         dumped = parsed.model_dump()
+        invoice_meta = _resolve_invoice_meta(dumped, ocr_text)
+
+        if invoice_meta["invoice_number"] and is_invoice_number_uploaded(
+            invoice_meta["invoice_number"]
+        ):
+            _logger.info(
+                "[报销表单提取] 第 %d/%d 个文件「%s」发票已上传: %s",
+                idx + 1,
+                total_files,
+                short_name,
+                invoice_meta["invoice_number"],
+            )
+            return idx, _duplicate_invoice_row(invoice_meta), None
+
         n_tp = len(types_payload)
         if (
             n_tp >= 2
@@ -207,6 +357,15 @@ def _form_extract_one_file(
         ):
             _logger.warning(
                 "[报销表单提取] 启用类型≥2 但本文件未返回 code，易与上一文件类型混淆: %s",
+                short_name,
+            )
+        if (
+            n_tp >= 2
+            and not dumped.get("no_existing_type_match")
+            and not str(dumped.get("name") or "").strip()
+        ):
+            _logger.warning(
+                "[报销表单提取] 启用类型≥2 但本文件未返回 name，易选型错误: %s",
                 short_name,
             )
 
@@ -250,7 +409,7 @@ def _form_extract_one_file(
             batch_for_file = list(
                 build_form_result_array_from_db_values(
                     types_payload,
-                    dumped.get("label") or "",
+                    dumped.get("name") or dumped.get("label") or "",
                     lines_fv,
                     code=(dumped.get("code") or "") or None,
                 )
@@ -263,6 +422,18 @@ def _form_extract_one_file(
             short_name,
             len(batch_for_file),
         )
+        if invoice_meta["invoice_number"]:
+            _logger.info(
+                "[报销表单提取] 第 %d/%d 个文件「%s」发票号码=%s 抬头=%s 日期=%s 开票人=%s",
+                idx + 1,
+                total_files,
+                short_name,
+                invoice_meta["invoice_number"],
+                invoice_meta["invoice_title"] or "—",
+                invoice_meta["invoice_date"] or "—",
+                invoice_meta["issuer"] or "—",
+            )
+        _attach_invoice_meta_to_rows(batch_for_file, invoice_meta)
         return idx, batch_for_file, None
     except Exception as e:
         _logger.exception(

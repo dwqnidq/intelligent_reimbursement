@@ -15,6 +15,7 @@ import {
   KeyOutlined,
   MenuOutlined,
   HistoryOutlined,
+  BankOutlined,
 } from "@ant-design/icons";
 
 export const iconMap: Record<string, ReactNode> = {
@@ -33,4 +34,5 @@ export const iconMap: Record<string, ReactNode> = {
   KeyOutlined: <KeyOutlined />,
   MenuOutlined: <MenuOutlined />,
   HistoryOutlined: <HistoryOutlined />,
+  BankOutlined: <BankOutlined />,
 };

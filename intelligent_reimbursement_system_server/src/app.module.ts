@@ -17,6 +17,7 @@ import { ApprovalRecordModule } from './modules/approval-record/approval-record.
 import { RoleModule } from './modules/role/role.module';
 import { PermissionModule } from './modules/permission/permission.module';
 import { MenuModule } from './modules/menu/menu.module';
+import { CompanyModule } from './modules/company/company.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { MenuModule } from './modules/menu/menu.module';
     RoleModule,
     PermissionModule,
     MenuModule,
+    CompanyModule,
   ],
 })
 export class AppModule {}

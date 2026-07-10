@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
+import { needsProfileSetup } from "../utils/authNavigation";
 import { iconMap } from "../router/iconMap";
 import type { MenuItem } from "../api/user";
 
@@ -40,6 +41,12 @@ export default function MainLayout() {
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
+
+  useEffect(() => {
+    if (needsProfileSetup(user)) {
+      navigate("/profile-setup", { replace: true });
+    }
+  }, [navigate, user]);
 
   const menuItems = buildMenuItems(menus);
 

@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -12,13 +13,17 @@ import { CreateReimbursementTypeDto } from './dto/create-reimbursement-type.dto'
 import { UpdateReimbursementTypeDto } from './dto/update-reimbursement-type.dto';
 
 @Injectable()
-export class ReimbursementTypeService {
+export class ReimbursementTypeService implements OnModuleInit {
   constructor(
     @InjectModel(ReimbursementType.name)
     private typeModel: Model<ReimbursementType>,
     @InjectModel(User.name)
     private userModel: Model<User>,
   ) {}
+
+  async onModuleInit() {
+    await this.typeModel.syncIndexes();
+  }
 
   async findAll(userId: string) {
     const user = await this.userModel.findById(userId).populate('roles');
@@ -28,7 +33,9 @@ export class ReimbursementTypeService {
     const filter = isAdmin ? {} : { status: 1 };
     return this.typeModel
       .find(filter)
-      .select('code label fields formula over_limit_threshold export_fields status')
+      .select(
+        'code name label fields formula over_limit_threshold export_fields status remark',
+      )
       .sort({ createdAt: 1 });
   }
 
@@ -39,39 +46,45 @@ export class ReimbursementTypeService {
     }
 
     const codeSet = new Set<string>();
-    const labelSet = new Set<string>();
+    const nameSet = new Set<string>();
     for (const item of items) {
       const code = String(item.code ?? '').trim();
+      const name = String(item.name ?? '').trim();
       const label = String(item.label ?? '').trim();
-      if (!code || !label) {
-        throw new BadRequestException('code 和 label 为必填项');
+      if (!code || !name || !label) {
+        throw new BadRequestException('code、name 和 label 为必填项');
       }
       if (codeSet.has(code)) {
         throw new ConflictException(`类型标识符「${code}」在本次请求中重复`);
       }
-      if (labelSet.has(label)) {
-        throw new ConflictException(`类型名称「${label}」在本次请求中重复`);
+      if (nameSet.has(name)) {
+        throw new ConflictException(`报销类型「${name}」在本次请求中重复`);
       }
       codeSet.add(code);
-      labelSet.add(label);
+      nameSet.add(name);
     }
 
     const exists = await this.typeModel.find({
       $or: [
         { code: { $in: [...codeSet] } },
-        { label: { $in: [...labelSet] } },
+        { name: { $in: [...nameSet] } },
       ],
     });
     if (exists.length > 0) {
       const hitCode = exists.find((x) => codeSet.has(x.code));
-      if (hitCode) throw new ConflictException(`类型标识符「${hitCode.code}」已存在`);
-      const hitLabel = exists.find((x) => labelSet.has(x.label));
-      if (hitLabel) throw new ConflictException(`类型名称「${hitLabel.label}」已存在`);
+      if (hitCode) {
+        throw new ConflictException(`类型标识符「${hitCode.code}」已存在`);
+      }
+      const hitName = exists.find((x) => nameSet.has(x.name));
+      if (hitName) {
+        throw new ConflictException(`报销类型「${hitName.name}」已存在`);
+      }
     }
 
     const docs = items.map((item) => ({
       ...item,
       code: String(item.code).trim(),
+      name: String(item.name).trim(),
       label: String(item.label).trim(),
     }));
     const inserted = await this.typeModel.insertMany(docs);
@@ -85,20 +98,21 @@ export class ReimbursementTypeService {
     const record = await this.typeModel.findById(id);
     if (!record) throw new NotFoundException('报销类型不存在');
 
-    if (dto.code || dto.label) {
-      const query: {
-        _id: { $ne: string };
-        code?: string;
-        label?: string;
-      } = { _id: { $ne: id } };
-      if (dto.code) query.code = dto.code;
-      if (dto.label) query.label = dto.label;
-      const exists = await this.typeModel.findOne(query);
+    if (dto.code || dto.name) {
+      const orConditions: Array<{ code: string } | { name: string }> = [];
+      if (dto.code) orConditions.push({ code: dto.code });
+      if (dto.name) orConditions.push({ name: dto.name });
+      const exists = await this.typeModel.findOne({
+        _id: { $ne: id },
+        $or: orConditions,
+      });
       if (exists) {
-        if (dto.code && exists.code === dto.code)
+        if (dto.code && exists.code === dto.code) {
           throw new ConflictException('类型标识符已存在');
-        if (dto.label && exists.label === dto.label)
-          throw new ConflictException('类型名称已存在');
+        }
+        if (dto.name && exists.name === dto.name) {
+          throw new ConflictException('报销类型名称已存在');
+        }
       }
     }
 

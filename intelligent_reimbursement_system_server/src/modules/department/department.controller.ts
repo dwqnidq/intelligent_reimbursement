@@ -22,11 +22,22 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class DepartmentController {
   constructor(private readonly service: DepartmentService) {}
 
-  @ApiOperation({ summary: '获取部门列表' })
+  @ApiOperation({ summary: '获取部门列表（tree=true 返回树形）' })
   @Get()
-  findAll(@Query('status') status?: string) {
-    const query = status !== undefined ? { status: Number(status) } : undefined;
-    return this.service.findAll(query);
+  findAll(
+    @Query('status') status?: string,
+    @Query('tree') tree?: string,
+  ) {
+    const query: { status?: number; tree?: boolean } = {};
+    if (status !== undefined) query.status = Number(status);
+    if (tree === 'true') query.tree = true;
+    return this.service.findAll(Object.keys(query).length ? query : undefined);
+  }
+
+  @ApiOperation({ summary: '获取部门名称选项（直接拉取飞书通讯录，带缓存）' })
+  @Get('name-options')
+  findNameOptions() {
+    return this.service.findNameOptions();
   }
 
   @ApiOperation({ summary: '创建部门' })

@@ -175,7 +175,7 @@ def _normalize_reimbursement_type_result(result: Any) -> List[Dict[str, Any]]:
             deduped.append(item)
         return deduped
     if isinstance(result, dict):
-        if "code" in result and "label" in result:
+        if "code" in result and ("name" in result or "label" in result):
             return [result]
         vals: List[Dict[str, Any]] = []
         for v in result.values():
@@ -250,7 +250,11 @@ def reimbursement_type_node(state: GraphState) -> GraphState:
                 parsed = json.loads(r2)
 
         result = _normalize_reimbursement_type_result(parsed)
-        labels = [str(x.get("label", "")) for x in result if isinstance(x, dict)]
+        labels = [
+            str(x.get("name") or x.get("label") or "")
+            for x in result
+            if isinstance(x, dict)
+        ]
         print(f"[报销类型节点] 生成成功，共 {len(result)} 个类型: {', '.join([x for x in labels if x])}")
         _logger.info("[报销类型节点] 生成成功: %s", ", ".join([x for x in labels if x]))
     except Exception as e:

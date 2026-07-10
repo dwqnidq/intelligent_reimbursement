@@ -78,11 +78,16 @@ class ReimbursementFormValuesExtract(BaseModel):
             "摘要中有 2 种及以上类型时必填，用于严格锁定类型、禁止与上一文件串台"
         ),
     )
-    label: str = Field(
+    name: str = Field(
         default="",
         description=(
-            "必须与所选摘要条目的 label 完全一致；且与 code 必须属于同一条记录，不可张冠李戴"
+            "必须与所选摘要条目的 name 完全一致（报销类型业务名称）；"
+            "且与 code 必须属于同一条记录，不可张冠李戴"
         ),
+    )
+    label: str = Field(
+        default="",
+        description="保留兼容字段，智能填单请填写 name，勿用 label 选型",
     )
     items: List[LineItemAssignments] = Field(
         default_factory=list,
@@ -105,4 +110,20 @@ class ReimbursementFormValuesExtract(BaseModel):
     suggested_line_items: List[LineItemSuggested] = Field(
         default_factory=list,
         description="与 no_existing_type_match 配套：每条明细一组 fields",
+    )
+    invoice_number: str = Field(
+        default="",
+        description="发票号码/票据号码；增值税发票填发票号码，其他票据填唯一编号；无法识别则留空",
+    )
+    invoice_title: str = Field(
+        default="",
+        description="发票抬头（购买方名称/公司名称）；无法识别则留空",
+    )
+    invoice_date: str = Field(
+        default="",
+        description="开票日期，格式 YYYY-MM-DD；无法识别则留空",
+    )
+    issuer: str = Field(
+        default="",
+        description="开票人姓名；无法识别则留空",
     )

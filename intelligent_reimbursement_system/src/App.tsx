@@ -11,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import SetTokenPage from "./pages/SetTokenPage";
 import PasswordSetupPage from "./pages/PasswordSetupPage";
+import ProfileSetupPage from "./pages/ProfileSetupPage";
 import AIAssistant from "./components/AIAssistant";
 import { componentMap } from "./router/componentMap";
 import type { MenuItem } from "./api/user";
@@ -74,6 +75,18 @@ export default function App() {
                   <PasswordSetupPage />
                 </AuthGuard>
               }
+            />
+            <Route
+              path="/profile-setup"
+              element={
+                <AuthGuard>
+                  <ProfileSetupPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/payment-account-setup"
+              element={<Navigate to="/profile-setup" replace />}
             />
             <Route
               path="/"

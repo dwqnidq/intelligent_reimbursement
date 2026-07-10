@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   Avatar,
@@ -8,17 +8,50 @@ import {
   Upload,
   message,
   Divider,
+  Select,
 } from "antd";
-import { UserOutlined, CameraOutlined, LockOutlined, IdcardOutlined } from "@ant-design/icons";
+import { UserOutlined, CameraOutlined, LockOutlined, IdcardOutlined, BankOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useAuthStore } from "../store/useAuthStore";
-import { updateAvatar, changePassword } from "../api/user";
+import { updateAvatar, changePassword, updateProfile, updateProfileSetup } from "../api/user";
+import { getCompanyNameOptions } from "../api/company";
+import type { CompanyNameOption } from "../api/company";
 
 export default function ProfilePage() {
   const { user, setAuth, token, refreshToken, permissions, menus } = useAuthStore();
   const [pwdForm] = Form.useForm();
+  const [basicForm] = Form.useForm();
+  const [profileForm] = Form.useForm();
   const [pwdLoading, setPwdLoading] = useState(false);
+  const [basicLoading, setBasicLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+
+  const [companyOptions, setCompanyOptions] = useState<CompanyNameOption[]>([]);
+
+  useEffect(() => {
+    getCompanyNameOptions()
+      .then((list) => setCompanyOptions(Array.isArray(list) ? list : []))
+      .catch(() => setCompanyOptions([]));
+  }, []);
+
+  useEffect(() => {
+    basicForm.setFieldsValue({
+      username: user?.username ?? "",
+      email: user?.email ?? "",
+    });
+    profileForm.setFieldsValue({
+      company_id: user?.company_id || undefined,
+      payment_account: user?.payment_account ?? "",
+    });
+  }, [
+    basicForm,
+    profileForm,
+    user?.username,
+    user?.email,
+    user?.company_id,
+    user?.payment_account,
+  ]);
 
   const uploadProps: UploadProps = {
     showUploadList: false,
@@ -79,6 +112,53 @@ export default function ProfilePage() {
     }
   };
 
+  const onUpdateBasicInfo = async (values: { username: string; email: string }) => {
+    setBasicLoading(true);
+    try {
+      const res = await updateProfile({
+        username: values.username.trim(),
+        email: values.email.trim(),
+      });
+      setAuth({
+        token,
+        refreshToken,
+        user: res.user,
+        permissions,
+        menus,
+      });
+      message.success("基本信息已更新");
+    } catch {
+      // 拦截器统一提示
+    } finally {
+      setBasicLoading(false);
+    }
+  };
+
+  const onUpdateProfile = async (values: {
+    company_id: string;
+    payment_account: string;
+  }) => {
+    setProfileLoading(true);
+    try {
+      const res = await updateProfileSetup({
+        company_id: values.company_id,
+        payment_account: values.payment_account.trim(),
+      });
+      setAuth({
+        token,
+        refreshToken,
+        user: res.user,
+        permissions,
+        menus,
+      });
+      message.success("公司与收款账户已更新");
+    } catch {
+      // 拦截器统一提示
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   return (
     <div className="w-full flex flex-col flex-1">
       <Card className="w-full flex flex-col flex-1">
@@ -113,16 +193,89 @@ export default function ProfilePage() {
               <p className="text-xs text-[var(--text-tertiary)] mt-2">点击相机图标更换头像</p>
             </div>
 
-            {/* 基本信息展示 */}
-            <div className="mb-6 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-[var(--text-secondary)]">昵称</span>
-                <span className="font-medium text-[var(--text-primary)]">{user?.username ?? "-"}</span>
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <UserOutlined className="text-[var(--color-primary)]" />
+                <span className="text-sm font-medium text-[var(--text-primary)]">基本信息</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-[var(--text-secondary)]">邮箱</span>
-                <span className="font-medium text-[var(--text-primary)]">{user?.email ?? "-"}</span>
+              <Form
+                form={basicForm}
+                layout="vertical"
+                initialValues={{
+                  username: user?.username ?? "",
+                  email: user?.email ?? "",
+                }}
+                onFinish={onUpdateBasicInfo}
+              >
+                <Form.Item
+                  label="昵称"
+                  name="username"
+                  rules={[{ required: true, message: "请输入昵称" }]}
+                >
+                  <Input placeholder="请输入昵称" maxLength={50} />
+                </Form.Item>
+                <Form.Item
+                  label="邮箱"
+                  name="email"
+                  rules={[
+                    { required: true, message: "请输入邮箱" },
+                    { type: "email", message: "请输入有效的邮箱地址" },
+                  ]}
+                >
+                  <Input placeholder="请输入邮箱" />
+                </Form.Item>
+                <Form.Item className="mb-0">
+                  <Button type="primary" htmlType="submit" loading={basicLoading}>
+                    保存基本信息
+                  </Button>
+                </Form.Item>
+              </Form>
+            </div>
+
+            <Divider />
+
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <BankOutlined className="text-[var(--color-primary)]" />
+                <span className="text-sm font-medium text-[var(--text-primary)]">公司与收款账户</span>
               </div>
+              <Form
+                form={profileForm}
+                layout="vertical"
+                initialValues={{
+                  company_id: user?.company_id || undefined,
+                  payment_account: user?.payment_account ?? "",
+                }}
+                onFinish={onUpdateProfile}
+              >
+                <Form.Item
+                  label="所属公司"
+                  name="company_id"
+                  rules={[{ required: true, message: "请选择所属公司" }]}
+                >
+                  <Select
+                    placeholder="请选择公司"
+                    options={companyOptions.map((item) => ({
+                      label: item.name,
+                      value: item._id,
+                    }))}
+                    showSearch
+                    optionFilterProp="label"
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="收款账户"
+                  name="payment_account"
+                  rules={[{ required: true, message: "请输入收款账户" }]}
+                >
+                  <Input placeholder="银行卡号、支付宝账号等" />
+                </Form.Item>
+                <Form.Item className="mb-0">
+                  <Button type="primary" htmlType="submit" loading={profileLoading}>
+                    保存资料
+                  </Button>
+                </Form.Item>
+              </Form>
             </div>
 
             <Divider />

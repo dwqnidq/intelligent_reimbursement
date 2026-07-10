@@ -8,6 +8,10 @@ export class CreateReimbursementTypeDto {
 
   @ApiProperty()
   @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
   label: string;
 
   @ApiPropertyOptional()

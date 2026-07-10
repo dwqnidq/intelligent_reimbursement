@@ -49,9 +49,13 @@ def _serialize_type_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
     fields_out.sort(key=lambda x: x.get("sort", 0))
+    raw_name = doc.get("name")
+    raw_label = doc.get("label")
+    type_name = str(raw_name or raw_label or "").strip()
     return {
         "code": doc.get("code"),
-        "label": doc.get("label"),
+        "name": type_name,
+        "label": raw_label,
         "over_limit_threshold": doc.get("over_limit_threshold"),
         "fields": fields_out,
     }
@@ -59,16 +63,16 @@ def _serialize_type_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_types_skeleton_for_llm(types_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    供智能填单提示词使用：类型级保留 code（若有）+ label；字段级仅 key、label。
-    完整类型定义仍在 types_payload 中，由服务端按 label/code 匹配后按 key 合并 value。
+    供智能填单提示词使用：类型级保留 code（若有）+ name；字段级仅 key、label。
+    完整类型定义仍在 types_payload 中，由服务端按 name/code 匹配后按 key 合并 value，对外返回 label。
     """
     out: List[Dict[str, Any]] = []
     for t in types_payload or []:
         if not isinstance(t, dict):
             continue
-        type_label = str(t.get("label") or "").strip()
-        if not type_label:
-            type_label = str(t.get("code") or "").strip()
+        type_name = str(t.get("name") or t.get("label") or "").strip()
+        if not type_name:
+            type_name = str(t.get("code") or "").strip()
         code_str = str(t.get("code") or "").strip()
         fields_sl: List[Dict[str, str]] = []
 
@@ -89,9 +93,9 @@ def build_types_skeleton_for_llm(types_payload: List[Dict[str, Any]]) -> List[Di
             sk = str(k).strip()
             fl = str(f.get("label") or sk).strip() or sk
             fields_sl.append({"key": sk, "label": fl})
-        if not type_label and not fields_sl:
+        if not type_name and not fields_sl:
             continue
-        row: Dict[str, Any] = {"label": type_label, "fields": fields_sl}
+        row: Dict[str, Any] = {"name": type_name, "fields": fields_sl}
         if code_str:
             row["code"] = code_str
         out.append(row)
@@ -139,6 +143,7 @@ def fetch_active_reimbursement_types() -> List[Dict[str, Any]]:
                 _ACTIVE_TYPE_FILTER,
                 projection={
                     "code": 1,
+                    "name": 1,
                     "label": 1,
                     "fields": 1,
                     "over_limit_threshold": 1,
@@ -216,10 +221,10 @@ def _normalize_label(s: Any) -> str:
 def find_matched_reimbursement_type(
     types_payload: List[Dict[str, Any]],
     *,
-    label: str,
+    name: str,
     code: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """先按 code，再按 label 精确匹配；不做模糊归类、不因仅一条类型而自动套用。"""
+    """先按 code，再按 name 精确匹配；不做模糊归类、不因仅一条类型而自动套用。"""
     if not types_payload:
         return None
 
@@ -227,19 +232,21 @@ def find_matched_reimbursement_type(
     if c:
         for t in types_payload:
             if (t.get("code") or "").strip() == c:
-                ln_m = _normalize_label(label)
-                if ln_m and _normalize_label(t.get("label")) != ln_m:
+                nm_m = _normalize_label(name)
+                db_name = _normalize_label(t.get("name") or t.get("label"))
+                if nm_m and db_name != nm_m:
                     logger.warning(
-                        "[reimbursement_types] 模型 code=%s 与输出 label=%s 和库中该类型 label=%s 不一致，以 code 为准",
+                        "[reimbursement_types] 模型 code=%s 与输出 name=%s 和库中该类型 name=%s 不一致，以 code 为准",
                         c,
-                        label,
-                        t.get("label"),
+                        name,
+                        t.get("name"),
                     )
                 return t
-    ln = _normalize_label(label)
-    if ln:
+    nm = _normalize_label(name)
+    if nm:
         for t in types_payload:
-            if _normalize_label(t.get("label")) == ln:
+            db_name = _normalize_label(t.get("name") or t.get("label"))
+            if db_name == nm:
                 return t
     return None
 
@@ -449,7 +456,7 @@ def _build_fields_row_from_matched(
 
 def build_form_result_array_from_db_values(
     types_payload: List[Dict[str, Any]],
-    label: str,
+    name: str,
     items_field_values: List[Dict[str, Any]],
     *,
     code: Optional[str] = None,
@@ -457,8 +464,9 @@ def build_form_result_array_from_db_values(
     """
     填单节点 result：**顶层数组**，每项一条明细：
     {{ "label", "fields": [...], "over_limit_threshold" }}；错误时为单元素且含 fill_error。
+    匹配使用 name；返回给前端的 label 为展示名称。
     """
-    label_stripped = (label or "").strip()
+    name_stripped = (name or "").strip()
     lines: List[Dict[str, Any]] = [
         x if isinstance(x, dict) else {} for x in (items_field_values or [])
     ]
@@ -466,12 +474,12 @@ def build_form_result_array_from_db_values(
         lines = [{}]
 
     matched = find_matched_reimbursement_type(
-        types_payload, label=label_stripped, code=code
+        types_payload, name=name_stripped, code=code
     )
 
     if not matched:
         return build_suggested_rows_from_assignment_maps(
-            label_stripped or "识别建议类型",
+            name_stripped or "识别建议类型",
             lines,
             type_code=code,
             over_limit_threshold=None,
@@ -481,7 +489,7 @@ def build_form_result_array_from_db_values(
     if threshold is None:
         threshold = 30000
 
-    resolved_label = matched.get("label") or label_stripped
+    resolved_label = str(matched.get("label") or "").strip() or name_stripped
     rows_out: List[Dict[str, Any]] = []
     for fv in lines:
         row_fields = _build_fields_row_from_matched(matched, fv)
@@ -508,7 +516,7 @@ def build_form_result_array_from_db_values(
 
 def build_form_result_from_db_values(
     types_payload: List[Dict[str, Any]],
-    label: str,
+    name: str,
     field_values: Dict[str, Any] | None,
     *,
     code: Optional[str] = None,
@@ -516,7 +524,7 @@ def build_form_result_from_db_values(
     """单条映射 → 旧版扁平 {{ label, fields, ... }}（脚本/兼容）。"""
     fv = field_values if isinstance(field_values, dict) else {}
     arr = build_form_result_array_from_db_values(
-        types_payload, label, [fv], code=code
+        types_payload, name, [fv], code=code
     )
     if not arr:
         return {"label": "", "fields": [], "over_limit_threshold": 0}

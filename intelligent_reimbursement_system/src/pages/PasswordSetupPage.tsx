@@ -4,6 +4,7 @@ import { LockOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { setupPassword } from "../api/user";
 import { useAuthStore } from "../store/useAuthStore";
+import { resolvePostLoginPath } from "../utils/authNavigation";
 
 export default function PasswordSetupPage() {
   const [form] = Form.useForm();
@@ -40,8 +41,10 @@ export default function PasswordSetupPage() {
         permissions,
         menus,
       });
-      message.success("设置成功，请使用新密码登录");
-      navigate("/", { replace: true });
+      message.success("设置成功");
+      navigate(resolvePostLoginPath({ ...user, password_login_enabled: true }, menus), {
+        replace: true,
+      });
     } catch {
       // 错误提示由拦截器处理
     } finally {
