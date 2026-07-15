@@ -18,6 +18,14 @@ export class ApproverInfo {
 
   @Prop()
   position: string;
+
+  /** 创建快照时冻结：是否向该审批人推送 */
+  @Prop({ default: true })
+  notify: boolean;
+
+  /** pending | approved | skipped | rejected；缺省按 pending */
+  @Prop({ default: 'pending' })
+  participation: string;
 }
 export const ApproverInfoSchema = SchemaFactory.createForClass(ApproverInfo);
 

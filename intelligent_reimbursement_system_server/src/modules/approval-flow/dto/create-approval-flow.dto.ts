@@ -12,6 +12,15 @@ export class ApprovalNodeDto {
   @IsString({ each: true })
   approver_ids: string[];
 
+  @ApiPropertyOptional({
+    type: [Boolean],
+    description: '与 approver_ids 等长，是否向该审批人推送；缺省按 true',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsBoolean({ each: true })
+  notify_flags?: boolean[];
+
   @ApiProperty({ enum: ['countersign', 'orsign'] })
   @IsString()
   sign_type: string;

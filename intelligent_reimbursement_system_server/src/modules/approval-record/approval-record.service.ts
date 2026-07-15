@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -15,6 +16,7 @@ import { Employee } from '../../schemas/employee.schema';
 import { Department } from '../../schemas/department.schema';
 import { Reimbursement } from '../../schemas/reimbursement_records.schema';
 import { User } from '../../schemas/user.schema';
+import { ApprovalNotifyService } from '../approval-notify/approval-notify.service';
 
 @Injectable()
 export class ApprovalRecordService {
@@ -31,16 +33,18 @@ export class ApprovalRecordService {
     private reimbursementModel: Model<Reimbursement>,
     @InjectModel(User.name)
     private userModel: Model<User>,
+    @Optional()
+    private readonly approvalNotify?: ApprovalNotifyService,
   ) {}
 
-  private async getEmployee(userId: string): Promise<InstanceType<typeof Employee>> {
+  private async tryGetEmployee(
+    userId: string,
+  ): Promise<InstanceType<typeof Employee> | null> {
     let emp = await this.empModel.findOne({ uid: userId });
-    console.log('getEmployee', { userId, emp });
     if (emp) return emp;
 
-    // Fallback: find user by ID, then match employee by name and auto-link
     const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('用户不存在');
+    if (!user) return null;
 
     emp = await this.empModel.findOne({ name: user.real_name, uid: null });
     if (emp) {
@@ -49,7 +53,15 @@ export class ApprovalRecordService {
       return emp;
     }
 
-    throw new NotFoundException('员工信息不存在，请先注册或通过飞书登录');
+    return null;
+  }
+
+  private async getEmployee(userId: string): Promise<InstanceType<typeof Employee>> {
+    const emp = await this.tryGetEmployee(userId);
+    if (!emp) {
+      throw new NotFoundException('员工信息不存在，请先注册或通过飞书登录');
+    }
+    return emp;
   }
 
   // Called when submitting reimbursement: create approval record with snapshot
@@ -88,19 +100,24 @@ export class ApprovalRecordService {
     for (const node of flow.nodes) {
       const approvers: ApproverInfo[] = [];
       const empIds = node.approver_ids as unknown as InstanceType<typeof Employee>[];
-      for (const emp of empIds) {
+      const notifyFlags = (node as { notify_flags?: boolean[] }).notify_flags ?? [];
+      for (let i = 0; i < empIds.length; i++) {
+        const emp = empIds[i];
         if (!emp) continue;
         let deptName = '';
         if (emp.dept_id) {
           const dept = await this.deptModel.findById(emp.dept_id);
           deptName = dept?.name || '';
         }
+        const notify = notifyFlags[i] !== false;
         approvers.push({
           approver_id: (emp._id as any).toString(),
           name: emp.name,
           avatar: emp.avatar || '',
           dept_name: deptName,
           position: emp.position || '',
+          notify,
+          participation: 'pending',
         });
       }
       snapshotNodes.push({
@@ -122,6 +139,8 @@ export class ApprovalRecordService {
       actions: [],
     });
 
+    void this.approvalNotify?.notifyNodeEntered(String(record._id));
+
     return record;
   }
 
@@ -132,25 +151,72 @@ export class ApprovalRecordService {
     });
   }
 
+  /** 当前用户是否仍可在该节点审批（排除 skipped / 已批） */
+  private canActOnNode(
+    node: SnapshotNode,
+    empName: string,
+  ): { ok: boolean; reason?: string; me?: ApproverInfo } {
+    const me = node.approvers.find((a) => a.name === empName);
+    if (!me) return { ok: false, reason: '您不是当前节点的审批人' };
+    if (me.participation === 'skipped') {
+      return { ok: false, reason: 'skipped', me };
+    }
+    if (
+      me.participation === 'approved' ||
+      me.participation === 'rejected' ||
+      node.approved_by?.includes(empName)
+    ) {
+      return { ok: false, reason: '您已审批过该节点', me };
+    }
+    return { ok: true, me };
+  }
+
+  private findApprovedByName(node: SnapshotNode): string | undefined {
+    const approved = node.approvers.find((a) => a.participation === 'approved');
+    if (approved) return approved.name;
+    return node.approved_by?.[0];
+  }
+
   // Get my pending approvals list with populated reimbursement data
   async findMyPending(userId: string) {
-    const emp = await this.getEmployee(userId);
+    const emp = await this.tryGetEmployee(userId);
+    if (!emp) return [];
     const allPending = await this.recordModel.find({ status: 'pending' });
-    // 只返回当前审批节点包含当前用户的记录
-    const records = allPending.filter((record) => {
+    const actionable = allPending.filter((record) => {
       const curNode = record.flow_snapshot.nodes[record.cur_node_idx];
       if (!curNode) return false;
-      return curNode.approvers.some((a) => a.name === emp.name);
+      const me = curNode.approvers.find((a) => a.name === emp.name);
+      if (!me) return false;
+      if (me.participation === 'skipped') return false;
+      if (me.participation === 'approved' || me.participation === 'rejected') {
+        return false;
+      }
+      if (curNode.approved_by?.includes(emp.name)) return false;
+      return true;
     });
+
+    // 或签被跳过：仍返回给前端用于灰显提示（不与可审批记录重复）
+    const skippedOnly = allPending.filter((record) => {
+      if (actionable.includes(record)) return false;
+      return record.flow_snapshot.nodes.some((node) =>
+        node.approvers.some(
+          (a) => a.name === emp.name && a.participation === 'skipped',
+        ),
+      );
+    });
+
     const result: Record<string, unknown>[] = [];
-    for (const record of records) {
+    const pushItem = async (
+      record: ApprovalRecord,
+      ui: { ui_state: string; approved_by_name?: string },
+    ) => {
       const reimbursement = await this.reimbursementModel
         .findById(record.record_id)
         .populate('applicant', 'real_name')
         .populate('attachments', 'url')
         .lean();
 
-      if (!reimbursement) continue;
+      if (!reimbursement) return;
 
       result.push({
         approval_record: {
@@ -174,6 +240,27 @@ export class ApprovalRecordService {
           ),
           reject_reason: (reimbursement as any).reject_reason,
         },
+        ...ui,
+      });
+    };
+
+    for (const record of actionable) {
+      await pushItem(record, { ui_state: 'pending' });
+    }
+    for (const record of skippedOnly) {
+      let approvedBy = '';
+      for (const node of record.flow_snapshot.nodes) {
+        const me = node.approvers.find(
+          (a) => a.name === emp.name && a.participation === 'skipped',
+        );
+        if (me) {
+          approvedBy = this.findApprovedByName(node) || '';
+          break;
+        }
+      }
+      await pushItem(record, {
+        ui_state: 'skipped',
+        approved_by_name: approvedBy,
       });
     }
     return result;
@@ -181,7 +268,8 @@ export class ApprovalRecordService {
 
   // Get my approval history (records I have participated in)
   async findMyHistory(userId: string) {
-    const emp = await this.getEmployee(userId);
+    const emp = await this.tryGetEmployee(userId);
+    if (!emp) return [];
     const allRecords = await this.recordModel.find({});
     const results: Record<string, unknown>[] = [];
 
@@ -259,15 +347,17 @@ export class ApprovalRecordService {
     const curNode = record.flow_snapshot.nodes[record.cur_node_idx];
     if (!curNode) throw new BadRequestException('当前节点不存在');
 
-    // Verify is current node approver
-    const isApprover = curNode.approvers.some((a) => a.name === emp.name);
-    if (!isApprover) {
-      throw new BadRequestException('您不是当前节点的审批人');
-    }
-
-    // Check if already approved
-    if (curNode.approved_by?.includes(emp.name)) {
-      throw new BadRequestException('您已审批过该节点');
+    const act = this.canActOnNode(curNode, emp.name);
+    if (!act.ok) {
+      if (act.reason === 'skipped') {
+        const by = this.findApprovedByName(curNode);
+        throw new BadRequestException(
+          by
+            ? `该报销记录已审批通过，审批人：${by}`
+            : '该报销记录已由其他审批人处理',
+        );
+      }
+      throw new BadRequestException(act.reason || '无法审批');
     }
 
     record.actions.push({
@@ -278,33 +368,84 @@ export class ApprovalRecordService {
       acted_at: new Date(),
     } as any);
 
-    // Track approval within node
     if (!curNode.approved_by) curNode.approved_by = [];
     curNode.approved_by.push(emp.name);
+    if (act.me) act.me.participation = 'approved';
+
+    const skippedApproverIds: string[] = [];
+    let nodeAdvanced = false;
 
     if (curNode.sign_type === 'orsign') {
-      // Or-sign: one person approves → next node
+      for (const a of curNode.approvers) {
+        if (a.name !== emp.name && (a.participation ?? 'pending') === 'pending') {
+          a.participation = 'skipped';
+          skippedApproverIds.push(a.approver_id);
+        }
+      }
       record.cur_node_idx += 1;
+      nodeAdvanced = true;
     } else {
-      // Countersign: all approvers must approve → next node
-      const allApproved = curNode.approvers.every((a) =>
-        curNode.approved_by.includes(a.name),
+      const allApproved = curNode.approvers.every(
+        (a) =>
+          a.participation === 'approved' ||
+          curNode.approved_by.includes(a.name),
       );
       if (allApproved) {
         record.cur_node_idx += 1;
+        nodeAdvanced = true;
       }
     }
 
-    // Check if all nodes approved
+    let finalized = false;
     if (record.cur_node_idx >= record.flow_snapshot.nodes.length) {
       record.status = 'approved';
+      finalized = true;
       await this.reimbursementModel.findByIdAndUpdate(record.record_id, {
         status: 'approved',
       });
     }
 
     await record.save();
-    return record;
+
+    const actorApproverId = act.me?.approver_id;
+    const resolveKind =
+      nodeAdvanced || finalized ? ('approved' as const) : ('self_done' as const);
+
+    if (skippedApproverIds.length > 0) {
+      void this.approvalNotify?.notifyOrsignSkipped(
+        String(record._id),
+        curNode.node_id,
+        emp.name,
+        skippedApproverIds,
+      );
+    }
+    // 后台/飞书通过后禁用操作者本人待审批卡（飞书回调也会再回写一版）
+    if (actorApproverId) {
+      void this.approvalNotify?.invalidatePendingFeishuCards(
+        String(record._id),
+        curNode.node_id,
+        [actorApproverId],
+        { kind: resolveKind, byName: emp.name },
+      );
+    }
+    if (nodeAdvanced && !finalized) {
+      void this.approvalNotify?.notifyNodeEntered(String(record._id));
+    }
+    if (finalized) {
+      void this.approvalNotify?.notifyFinalResult(String(record._id));
+    }
+
+    return {
+      record,
+      meta: {
+        skippedApproverIds,
+        nodeAdvanced,
+        finalized,
+        approvedByName: emp.name,
+        nodeId: curNode.node_id,
+        resolveKind,
+      },
+    };
   }
 
   // Reject
@@ -319,9 +460,17 @@ export class ApprovalRecordService {
     const curNode = record.flow_snapshot.nodes[record.cur_node_idx];
     if (!curNode) throw new BadRequestException('当前节点不存在');
 
-    const isApprover = curNode.approvers.some((a) => a.name === emp.name);
-    if (!isApprover) {
-      throw new BadRequestException('您不是当前节点的审批人');
+    const act = this.canActOnNode(curNode, emp.name);
+    if (!act.ok) {
+      if (act.reason === 'skipped') {
+        const by = this.findApprovedByName(curNode);
+        throw new BadRequestException(
+          by
+            ? `该报销记录已审批通过，审批人：${by}`
+            : '该报销记录已由其他审批人处理',
+        );
+      }
+      throw new BadRequestException(act.reason || '无法审批');
     }
 
     record.actions.push({
@@ -332,6 +481,8 @@ export class ApprovalRecordService {
       acted_at: new Date(),
     } as any);
 
+    if (act.me) act.me.participation = 'rejected';
+
     record.status = 'rejected';
     await this.reimbursementModel.findByIdAndUpdate(record.record_id, {
       status: 'rejected',
@@ -339,7 +490,28 @@ export class ApprovalRecordService {
     });
 
     await record.save();
-    return record;
+
+    const rejectTargetIds = curNode.approvers
+      .filter((a) => a.notify !== false)
+      .map((a) => a.approver_id);
+    if (rejectTargetIds.length > 0) {
+      void this.approvalNotify?.invalidatePendingFeishuCards(
+        String(record._id),
+        curNode.node_id,
+        rejectTargetIds,
+        { kind: 'rejected', byName: emp.name },
+      );
+    }
+    void this.approvalNotify?.notifyFinalResult(String(record._id));
+    return {
+      record,
+      meta: {
+        finalized: true as const,
+        approvedByName: emp.name,
+        nodeId: curNode.node_id,
+        resolveKind: 'rejected' as const,
+      },
+    };
   }
 
   // Transfer (转审)
@@ -362,12 +534,19 @@ export class ApprovalRecordService {
     const curNode = record.flow_snapshot.nodes[record.cur_node_idx];
     if (!curNode) throw new BadRequestException('当前节点不存在');
 
-    const isApprover = curNode.approvers.some((a) => a.name === emp.name);
-    if (!isApprover) {
-      throw new BadRequestException('您不是当前节点的审批人');
+    const act = this.canActOnNode(curNode, emp.name);
+    if (!act.ok) {
+      if (act.reason === 'skipped') {
+        const by = this.findApprovedByName(curNode);
+        throw new BadRequestException(
+          by
+            ? `该报销记录已审批通过，审批人：${by}`
+            : '该报销记录已由其他审批人处理',
+        );
+      }
+      throw new BadRequestException(act.reason || '无法审批');
     }
 
-    // Record transfer action
     record.actions.push({
       node_id: curNode.node_id,
       approver_name: emp.name,
@@ -377,11 +556,9 @@ export class ApprovalRecordService {
       transferred_to_name: targetEmp.name,
     } as any);
 
-    // Track transfer in snapshot: map original → target
     if (!curNode.transfers) curNode.transfers = {};
     curNode.transfers[emp.name] = targetEmp.name;
 
-    // 目标审批人不能是当前节点已有审批人
     const alreadyApprover = curNode.approvers.some(
       (a) => a.name === targetEmp.name,
     );
@@ -400,9 +577,21 @@ export class ApprovalRecordService {
       avatar: targetEmp.avatar || '',
       dept_name: deptName,
       position: targetEmp.position || '',
+      notify: true,
+      participation: 'pending',
     });
 
     await record.save();
-    return record;
+    void this.approvalNotify?.notifyTransferTarget(
+      String(record._id),
+      (targetEmp._id as any).toString(),
+    );
+    return {
+      record,
+      meta: {
+        transferredApproverId: (targetEmp._id as any).toString(),
+        nodeId: curNode.node_id,
+      },
+    };
   }
 }

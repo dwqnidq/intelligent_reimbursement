@@ -38,32 +38,40 @@ export class ApprovalRecordController {
 
   @ApiOperation({ summary: '审批通过' })
   @Post(':id/approve')
-  approve(
+  async approve(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @Body('comment') comment?: string,
   ) {
-    return this.service.approve(id, userId, comment);
+    const { record } = await this.service.approve(id, userId, comment);
+    return record;
   }
 
   @ApiOperation({ summary: '审批驳回' })
   @Post(':id/reject')
-  reject(
+  async reject(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @Body('comment') comment?: string,
   ) {
-    return this.service.reject(id, userId, comment);
+    const { record } = await this.service.reject(id, userId, comment);
+    return record;
   }
 
   @ApiOperation({ summary: '转审' })
   @Post(':id/transfer')
-  transfer(
+  async transfer(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @Body('target_employee_id') targetEmployeeId: string,
     @Body('comment') comment?: string,
   ) {
-    return this.service.transfer(id, userId, targetEmployeeId, comment);
+    const { record } = await this.service.transfer(
+      id,
+      userId,
+      targetEmployeeId,
+      comment,
+    );
+    return record;
   }
 }

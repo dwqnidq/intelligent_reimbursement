@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ApprovalRecordController } from './approval-record.controller';
 import { ApprovalRecordService } from './approval-record.service';
@@ -17,6 +17,7 @@ import {
   Reimbursement,
   ReimbursementSchema,
 } from '../../schemas/reimbursement_records.schema';
+import { ApprovalNotifyModule } from '../approval-notify/approval-notify.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import {
       { name: Reimbursement.name, schema: ReimbursementSchema },
       { name: User.name, schema: UserSchema },
     ]),
+    forwardRef(() => ApprovalNotifyModule),
   ],
   controllers: [ApprovalRecordController],
   providers: [ApprovalRecordService],

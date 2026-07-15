@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ApprovalFlow } from '../../schemas/approval_flow.schema';
@@ -32,9 +28,27 @@ export class ApprovalFlowService {
     return record;
   }
 
+  /** 保证每个节点 notify_flags 与 approver_ids 等长，缺省 true */
+  private normalizeNodes<
+    T extends {
+      approver_ids: string[];
+      notify_flags?: boolean[];
+    },
+  >(nodes: T[]): T[] {
+    return nodes.map((node) => {
+      const flags = [...(node.notify_flags ?? [])];
+      while (flags.length < node.approver_ids.length) flags.push(true);
+      if (flags.length > node.approver_ids.length) {
+        flags.length = node.approver_ids.length;
+      }
+      return { ...node, notify_flags: flags };
+    });
+  }
+
   async create(dto: CreateApprovalFlowDto, userId: string) {
     const doc = await this.flowModel.create({
       ...dto,
+      nodes: this.normalizeNodes(dto.nodes ?? []),
       created_by: userId,
     } as any);
     return { id: doc._id };
@@ -44,7 +58,11 @@ export class ApprovalFlowService {
     const record = await this.flowModel.findById(id);
     if (!record) throw new NotFoundException('审批流不存在');
 
-    Object.assign(record, dto);
+    const next = { ...dto } as UpdateApprovalFlowDto;
+    if (next.nodes) {
+      next.nodes = this.normalizeNodes(next.nodes);
+    }
+    Object.assign(record, next);
     await record.save();
     return { id: record._id };
   }

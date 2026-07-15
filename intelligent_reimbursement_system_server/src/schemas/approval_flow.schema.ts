@@ -9,6 +9,10 @@ export class ApprovalNode {
   @Prop({ type: [String], ref: 'Employee', default: [] })
   approver_ids: string[];
 
+  /** 与 approver_ids 等长；true 表示该审批人开启推送；缺省/旧数据按 true */
+  @Prop({ type: [Boolean], default: [] })
+  notify_flags: boolean[];
+
   @Prop({ required: true, enum: ['countersign', 'orsign'] })
   sign_type: string;
 
