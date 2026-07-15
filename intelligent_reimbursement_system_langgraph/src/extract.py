@@ -43,6 +43,14 @@ _INVOICE_ISSUER_PATTERNS = [
     re.compile(r"开票人[：:\s]*([^\n\s]{1,20})"),
 ]
 
+_INVOICE_NUMBER_VALID_RE = re.compile(r"^[0-9]{8,20}$")
+
+
+def is_valid_invoice_number(invoice_number: Optional[str]) -> bool:
+    """发票号码须为 8–20 位纯数字（与 OCR 提取规则一致）。"""
+    normalized = (invoice_number or "").strip()
+    return bool(_INVOICE_NUMBER_VALID_RE.fullmatch(normalized))
+
 
 def extract_invoice_number_from_ocr(ocr_text: Optional[str]) -> str:
     """从 OCR 正文用正则提取发票号码；LLM 未返回时的可靠兜底。"""
@@ -139,18 +147,75 @@ def _attach_invoice_meta_to_rows(
             row.update(invoice_meta)
 
 
-def _duplicate_invoice_row(invoice_meta: Dict[str, str]) -> List[Dict[str, Any]]:
+def _duplicate_invoice_row(
+    invoice_meta: Dict[str, str],
+    *,
+    batch_duplicate: bool = False,
+) -> List[Dict[str, Any]]:
     inv = invoice_meta.get("invoice_number", "")
-    return [
-        {
-            "label": "",
-            "fields": [],
-            "over_limit_threshold": 0,
-            "invoice_duplicate": True,
-            "fill_error": f"该发票已上传，发票号码：{inv}",
-            **invoice_meta,
-        }
-    ]
+    if batch_duplicate:
+        fill_error = f"与本批其他文件发票号码重复：{inv}" if inv else "与本批其他文件重复"
+    else:
+        fill_error = f"该发票已上传，发票号码：{inv}" if inv else "该发票已上传"
+    row: Dict[str, Any] = {
+        "label": "",
+        "fields": [],
+        "over_limit_threshold": 0,
+        "invoice_duplicate": True,
+        "fill_error": fill_error,
+        **invoice_meta,
+    }
+    if batch_duplicate:
+        row["invoice_batch_duplicate"] = True
+    return [row]
+
+
+def _first_invoice_number_from_batch(batch: List[Dict[str, Any]]) -> str:
+    for row in batch:
+        if not isinstance(row, dict):
+            continue
+        inv = str(row.get("invoice_number") or "").strip()
+        if inv:
+            return inv
+    return ""
+
+
+def apply_batch_invoice_dedup(
+    accumulated: List[List[Dict[str, Any]]],
+) -> List[List[Dict[str, Any]]]:
+    """同批多文件：相同发票号码仅保留首条识别结果，其余标记为 batch 重复。"""
+    seen: Dict[str, int] = {}
+    out: List[List[Dict[str, Any]]] = []
+    for idx, batch in enumerate(accumulated):
+        if not batch:
+            out.append(batch)
+            continue
+        head = batch[0] if isinstance(batch[0], dict) else {}
+        if head.get("invoice_duplicate"):
+            out.append(batch)
+            continue
+        inv = _first_invoice_number_from_batch(batch)
+        if not inv:
+            out.append(batch)
+            continue
+        if inv in seen:
+            meta = {
+                "invoice_number": inv,
+                "invoice_title": str(head.get("invoice_title") or ""),
+                "invoice_date": str(head.get("invoice_date") or ""),
+                "issuer": str(head.get("issuer") or ""),
+            }
+            out.append(_duplicate_invoice_row(meta, batch_duplicate=True))
+            _logger.info(
+                "[报销表单提取] 文件 %d 与本批文件 %d 发票号重复: %s",
+                idx + 1,
+                seen[inv] + 1,
+                inv,
+            )
+        else:
+            seen[inv] = idx
+            out.append(batch)
+    return out
 
 
 def _parse_llm_json(raw: str, model_cls):
@@ -249,11 +314,23 @@ def _form_extract_prompt_with_db(
 **【当前为第 {file_index}/{file_total} 个文件】** 本消息**只含这一份**材料（PDF 为抽取正文，图片为单图）。你只能依据**本份**内容输出结果；**禁止**臆造同批其它文件中的信息。
 
 **【类型判定铁律 · 必须遵守】**
-1. **业务实质优先**：先判断本份材料本身是什么业务——例如：餐饮小票/外卖/餐厅发票 → 应对应**餐饮、餐费**等类型，**绝不能**选采购、物资、对公采购等；采购合同、订货单、货款/物资发票 → 应对应**采购**类，**绝不能**选餐费、差旅餐饮等。若摘要中无完全对应类型，应走「无法归入」模式而非硬套。
-2. **禁止惯性归类**：即使用户一次上传多份文件，**每一份**都要重新看内容选型；**禁止**默认与上一份相同。
-3. **证据来自本份**：选型理由只能来自当前 PDF/图片/文件名中的文字，不得套用其它文件的结论。
+1. **先读 description**：类型摘要中每条若有 **description**，须结合其「适用范围、典型票据、排除项」判断本份材料归属；description 与 name 不一致时以 description 的业务边界为准。
+2. **多符合时选最贴切的一类（专类优先）**：若本份材料同时符合 2 种及以上类型的 description，**禁止**随便选第一个或选范围更宽的泛类；须在所有候选中择优，只输出**最贴切、最具体**的一条：
+   - **专类 > 泛类**：有更窄、业务含义更精确的类型时，必须选专类。
+   - **典型择优**（内心比对，不必输出过程）：
+     - 话费 / 流量 / 宽带 / 电信账单 → **通讯费**（非办公费）
+     - 酒店 / 宾馆 / 住宿房费 → **住宿费**（非差旅费）
+     - 打车 / 地铁 / 火车 / 机票 / 过路费 → **交通费**（非差旅费；除非票据为出差打包汇总单且无法拆分）
+     - 顺丰 / 快递 / 物流运费 → **快递费**（非办公费）
+     - 宴请外部客户 → **招待费**（非团建费、福利费）
+     - 内部部门团建聚餐 → **团建费**（非招待费、福利费）
+   - 若某类型的 description **排除项**明确写了本业务，则该类型直接淘汰。
+   - 仍无法区分时，选 description 中「典型票据/识别关键词」与本份材料字面证据**重合最多**的一类；仍平局再走「无法归入」模式。
+3. **业务实质优先**：先判断本份材料本身是什么业务，再按上条择优。若摘要中无完全对应类型，应走「无法归入」模式而非硬套。
+4. **禁止惯性归类**：即使用户一次上传多份文件，**每一份**都要重新看内容选型；**禁止**默认与上一份相同。
+5. **证据来自本份**：选型理由只能来自当前 PDF/图片/文件名中的文字，不得套用其它文件的结论。
 {multi_type_rule}
-下方「类型摘要」JSON 含每种类型的 **code**（若有）、**name**（报销类型业务名称）以及各字段的 **key**、**label**（中文名）。不含字段类型、选项等；服务端会按 name 从数据库匹配类型，并按 key 补全字段后返回展示用 label。
+下方「类型摘要」JSON 含每种类型的 **code**（若有）、**name**（报销类型业务名称）、**description**（业务描述，用于精准区分相近类型，若有）以及各字段的 **key**、**label**（中文名）。不含字段类型、选项等；服务端会按 name 从数据库匹配类型，并按 key 补全字段后返回展示用 label。
 
 类型摘要：
 {types_json}
@@ -336,10 +413,18 @@ def _form_extract_one_file(
         parsed = _parse_llm_json(resp.content, ReimbursementFormValuesExtract)
         dumped = parsed.model_dump()
         invoice_meta = _resolve_invoice_meta(dumped, ocr_text)
+        inv = invoice_meta["invoice_number"]
 
-        if invoice_meta["invoice_number"] and is_invoice_number_uploaded(
-            invoice_meta["invoice_number"]
-        ):
+        if not is_valid_invoice_number(inv):
+            _logger.info(
+                "[报销表单提取] 第 %d/%d 个文件「%s」未识别到有效发票号码",
+                idx + 1,
+                total_files,
+                short_name,
+            )
+            return idx, [], f"{short_name}: 未识别到有效发票号码"
+
+        if is_invoice_number_uploaded(inv):
             _logger.info(
                 "[报销表单提取] 第 %d/%d 个文件「%s」发票已上传: %s",
                 idx + 1,

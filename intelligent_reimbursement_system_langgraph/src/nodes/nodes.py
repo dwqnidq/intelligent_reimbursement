@@ -1,9 +1,6 @@
 """LangGraph 节点函数"""
-import base64
 import json
 import logging
-import mimetypes as _mimetypes
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -14,6 +11,7 @@ from src.db.reimbursement_types_repo import fetch_active_reimbursement_types
 from src.extract import (
     _form_extract_one_file,
     _recognize_single_file,
+    apply_batch_invoice_dedup,
 )
 from src.llm import llm
 from src.models import (
@@ -21,122 +19,14 @@ from src.models import (
     _FORM_EXTRACT_MAX_PARALLEL,
     GraphState,
 )
+from src.ocr_pool import ocr_files, prewarm_ocr_pool, resolve_ocr_max_parallel
 
 _logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────
-# PaddleOCR 单例（启动时预热）
-# ─────────────────────────────────────────────
 
-_ocr_instance = None
-
-
-def _get_ocr():
-    global _ocr_instance
-    if _ocr_instance is None:
-        from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(lang="ch", show_log=False)
-        _logger.info("[OCR] PaddleOCR 实例已初始化")
-    return _ocr_instance
-
-
-def warmup_ocr():
-    """服务启动时预热 PaddleOCR，避免首次请求卡顿。"""
-    try:
-        _get_ocr()
-    except Exception as e:
-        _logger.warning("[OCR] 预热失败: %s", e)
-
-
-
-def _ocr_single_file(file_data: str) -> str:
-    """对单个文件执行 PaddleOCR 提取文字。PDF 逐页转图片后识别。"""
-    if "::" in file_data:
-        file_name, b64_content = file_data.split("::", 1)
-    else:
-        file_name, b64_content = file_data, None
-
-    if not b64_content:
-        _logger.warning("[OCR] 文件 %s 无 base64 内容，跳过", file_name)
-        return ""
-
-    mime, _ = _mimetypes.guess_type(file_name)
-    is_pdf = mime == "application/pdf" if mime else file_name.lower().endswith(".pdf")
-
-    try:
-        file_bytes = base64.b64decode(b64_content)
-        _logger.info("[OCR] 文件 %s base64 解码成功，字节数: %d", file_name, len(file_bytes))
-    except Exception as e:
-        _logger.error("[OCR] 文件 %s base64 解码失败: %s", file_name, e)
-        return ""
-
-    ocr = _get_ocr()
-
-    if is_pdf:
-        # PDF：逐页转图片后 OCR
-        try:
-            import fitz
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            all_lines = []
-            for page_idx in range(len(doc)):
-                page = doc[page_idx]
-                pix = page.get_pixmap(dpi=200)
-                img_bytes = pix.tobytes("png")
-                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                tmp.write(img_bytes)
-                tmp.close()
-                tmp_path = tmp.name
-                try:
-                    result = ocr.ocr(tmp_path, cls=True)
-                    if result and result[0]:
-                        for line in result[0]:
-                            if line and len(line) >= 2:
-                                text, _ = line[1]
-                                all_lines.append(text)
-                finally:
-                    import os
-                    os.unlink(tmp_path)
-            total_pages = len(doc)
-            doc.close()
-            _logger.info("[OCR] PDF %s 共 %d 页，提取文字长度: %d", file_name, total_pages, len("\n".join(all_lines)))
-            return "\n".join(all_lines)
-        except Exception as e:
-            _logger.error("[OCR] PDF %s 处理异常: %s", file_name, e, exc_info=True)
-            global _ocr_instance
-            _ocr_instance = None
-            return ""
-    else:
-        # 图片：直接 OCR
-        tmp_path = None
-        try:
-            tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            tmp.write(file_bytes)
-            tmp.close()
-            tmp_path = tmp.name
-
-            result = ocr.ocr(tmp_path, cls=True)
-
-            if not result or not result[0]:
-                _logger.warning("[OCR] 文件 %s 识别结果为空", file_name)
-                return ""
-
-            lines = []
-            for line in result[0]:
-                if line and len(line) >= 2:
-                    text, confidence = line[1]
-                    lines.append(text)
-            return "\n".join(lines)
-        except Exception as e:
-            _logger.error("[OCR] 文件 %s 识别异常: %s", file_name, e, exc_info=True)
-            _ocr_instance = None
-            return ""
-        finally:
-            if tmp_path:
-                try:
-                    import os
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+def warmup_ocr() -> None:
+    """兼容入口：预热 OCR（并行时预热进程池）。"""
+    prewarm_ocr_pool()
 
 
 # ─────────────────────────────────────────────
@@ -276,10 +166,18 @@ def reimbursement_type_node(state: GraphState) -> GraphState:
 
 
 def ocr_extract_node(state: GraphState) -> GraphState:
-    """对所有图片文件串行执行 OCR 提取文字（PaddleOCR 非线程安全），PDF 跳过。"""
+    """对文件执行 OCR；多文件时按 OCR_MAX_PARALLEL 多进程并行（每进程独立实例）。"""
     files = state.get("files", [])
-    print(f"[OCR 节点] 开始处理，待处理文件数: {len(files)}")
-    _logger.info("[OCR 节点] 待处理文件数: %d", len(files))
+    workers = resolve_ocr_max_parallel()
+    print(
+        f"[OCR 节点] 开始处理，待处理文件数: {len(files)}，并行进程: "
+        f"{workers if len(files) > 1 else 1}"
+    )
+    _logger.info(
+        "[OCR 节点] 待处理文件数: %d，OCR_MAX_PARALLEL=%d",
+        len(files),
+        workers,
+    )
 
     if not files:
         return {
@@ -289,26 +187,25 @@ def ocr_extract_node(state: GraphState) -> GraphState:
             "step_count": state.get("step_count", 0) + 1,
         }
 
-    # PaddleOCR 非线程安全，必须串行处理
-    ocr_texts: List[str] = []
-    total = len(files)
+    try:
+        ocr_texts = ocr_files(files)
+    except Exception as e:
+        _logger.error("[OCR 节点] 批量识别失败: %s", e, exc_info=True)
+        ocr_texts = [""] * len(files)
+
     for idx, file_data in enumerate(files):
         short_name = file_data.split("::", 1)[0] if "::" in file_data else file_data
-        print(f"[OCR 节点] 正在处理第 {idx + 1}/{total} 个文件: {short_name}")
-        try:
-            text = _ocr_single_file(file_data)
-            ocr_texts.append(text)
-            print(f"[OCR 节点] 文件「{short_name}」提取完成，文字长度: {len(text)}")
-            _logger.info(
-                "[OCR 节点] 第 %d/%d 个文件「%s」提取文字长度: %d",
-                idx + 1, total, short_name, len(text),
-            )
-        except Exception as e:
-            _logger.error("[OCR 节点] 第 %d/%d 个文件「%s」处理异常: %s", idx + 1, total, short_name, e)
-            ocr_texts.append("")
-            print(f"[OCR 节点] 文件「{short_name}」处理异常: {e}")
+        text = ocr_texts[idx] if idx < len(ocr_texts) else ""
+        print(f"[OCR 节点] 文件「{short_name}」提取完成，文字长度: {len(text)}")
+        _logger.info(
+            "[OCR 节点] 第 %d/%d 个文件「%s」提取文字长度: %d",
+            idx + 1,
+            len(files),
+            short_name,
+            len(text),
+        )
 
-    print(f"[OCR 节点] 全部处理完成，共 {total} 个文件")
+    print(f"[OCR 节点] 全部处理完成，共 {len(files)} 个文件")
     return {
         **state,
         "ocr_texts": ocr_texts,
@@ -416,6 +313,8 @@ def reimbursement_form_extract_node(state: GraphState) -> GraphState:
                 err = results_by_idx[i][1]
                 if err:
                     file_failures.append(err)
+            if total_files > 1:
+                accumulated = apply_batch_invoice_dedup(accumulated)
 
         total_rows = sum(len(g) for g in accumulated)
         if total_rows == 0:

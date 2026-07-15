@@ -52,10 +52,13 @@ def _serialize_type_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     raw_name = doc.get("name")
     raw_label = doc.get("label")
     type_name = str(raw_name or raw_label or "").strip()
+    description = doc.get("description")
+    desc_str = str(description).strip() if description else ""
     return {
         "code": doc.get("code"),
         "name": type_name,
         "label": raw_label,
+        "description": desc_str or None,
         "over_limit_threshold": doc.get("over_limit_threshold"),
         "fields": fields_out,
     }
@@ -98,6 +101,9 @@ def build_types_skeleton_for_llm(types_payload: List[Dict[str, Any]]) -> List[Di
         row: Dict[str, Any] = {"name": type_name, "fields": fields_sl}
         if code_str:
             row["code"] = code_str
+        desc_str = str(t.get("description") or "").strip()
+        if desc_str:
+            row["description"] = desc_str
         out.append(row)
     return out
 
@@ -145,6 +151,7 @@ def fetch_active_reimbursement_types() -> List[Dict[str, Any]]:
                     "code": 1,
                     "name": 1,
                     "label": 1,
+                    "description": 1,
                     "fields": 1,
                     "over_limit_threshold": 1,
                     "status": 1,

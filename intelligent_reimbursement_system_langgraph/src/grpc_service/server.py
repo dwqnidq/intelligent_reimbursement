@@ -7,6 +7,7 @@ from concurrent import futures
 from src.generated import graph_service_pb2, graph_service_pb2_grpc
 from src.graph import main_graph
 from src.stream import stream_graph
+from src.grpc_service.message_size import grpc_message_length, grpc_server_options
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,11 @@ def serve(port: int | None = None, host: str | None = None) -> None:
         host = os.environ.get("SERVER_HOST", "0.0.0.0")
 
     max_workers = int(os.environ.get("MAX_WORKERS", "10"))
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    max_msg = grpc_message_length()
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+        options=grpc_server_options(),
+    )
     graph_service_pb2_grpc.add_GraphServiceServicer_to_server(
         GraphServiceServicer(), server
     )
@@ -109,7 +114,12 @@ def serve(port: int | None = None, host: str | None = None) -> None:
     server.add_insecure_port(f'{host}:{port}')
     server.start()
 
-    logger.info("gRPC 服务器已启动，监听 %s:%s", host, port)
+    logger.info(
+        "gRPC 服务器已启动，监听 %s:%s（max_message=%s bytes）",
+        host,
+        port,
+        max_msg,
+    )
     server.wait_for_termination()
 
 
