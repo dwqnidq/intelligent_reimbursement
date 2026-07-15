@@ -15,6 +15,7 @@ import RoleManage from "../pages/RoleManage";
 import PermissionManage from "../pages/PermissionManage";
 import MenuManage from "../pages/MenuManage";
 import CompanyManage from "../pages/CompanyManage";
+import ReimbursementFormSettingsManage from "../pages/ReimbursementFormSettingsManage";
 
 export const componentMap: Record<string, ComponentType> = {
   DashboardPage,
@@ -33,4 +34,5 @@ export const componentMap: Record<string, ComponentType> = {
   PermissionManage,
   MenuManage,
   CompanyManage,
+  ReimbursementFormSettingsManage,
 };

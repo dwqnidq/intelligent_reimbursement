@@ -2,12 +2,26 @@ import axios from "axios";
 import type { AxiosRequestConfig } from "axios";
 import { message } from "antd";
 import { useAuthStore } from "../store/useAuthStore";
+import type { MenuItem, UserInfo } from "./user";
+
+export interface HttpRequestConfig extends AxiosRequestConfig {
+  /** 为 true 时不弹出全局错误提示（调用方自行处理） */
+  skipErrorToast?: boolean;
+}
 
 interface AuthStorageState {
   state?: {
     token?: string;
     refreshToken?: string;
   };
+}
+
+interface RefreshSessionPayload {
+  token: string;
+  refreshToken: string;
+  permissions?: string[];
+  menus?: MenuItem[];
+  user?: UserInfo;
 }
 
 const axiosInstance = axios.create({
@@ -17,7 +31,7 @@ const axiosInstance = axios.create({
   withCredentials: true,
 });
 
-let refreshingPromise: Promise<{ token: string; refreshToken: string }> | null = null;
+let refreshingPromise: Promise<RefreshSessionPayload> | null = null;
 
 function getAuthStorage() {
   try {
@@ -64,7 +78,13 @@ async function doRefreshToken() {
   if (!payload?.token || !payload?.refreshToken) {
     throw new Error("refreshToken 响应格式错误");
   }
-  return { token: payload.token as string, refreshToken: payload.refreshToken as string };
+  return {
+    token: payload.token as string,
+    refreshToken: payload.refreshToken as string,
+    permissions: payload.permissions as string[] | undefined,
+    menus: payload.menus as MenuItem[] | undefined,
+    user: payload.user as UserInfo | undefined,
+  };
 }
 
 // 请求拦截器：从 zustand store 读取 token
@@ -94,9 +114,10 @@ axiosInstance.interceptors.response.use(
     return data.data ?? data;
   },
   async (error) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = error.config as HttpRequestConfig & { _retry?: boolean };
     const status = error.response?.status;
     const isRefreshRequest = originalRequest?.url?.includes("/users/refresh-token");
+    const skipErrorToast = originalRequest?.skipErrorToast === true;
 
     if (status === 401 && originalRequest && !originalRequest._retry && !isRefreshRequest) {
       originalRequest._retry = true;
@@ -104,13 +125,13 @@ axiosInstance.interceptors.response.use(
         refreshingPromise = refreshingPromise ?? doRefreshToken();
         const refreshed = await refreshingPromise;
         const currentState = useAuthStore.getState();
-        if (currentState.user) {
+        if (currentState.user || refreshed.user) {
           currentState.setAuth({
             token: refreshed.token,
             refreshToken: refreshed.refreshToken,
-            user: currentState.user,
-            permissions: currentState.permissions,
-            menus: currentState.menus,
+            user: refreshed.user ?? currentState.user!,
+            permissions: refreshed.permissions ?? currentState.permissions,
+            menus: refreshed.menus ?? currentState.menus,
           });
         }
         originalRequest.headers = {
@@ -153,7 +174,7 @@ axiosInstance.interceptors.response.use(
       msgMap[status] ??
       error.message ??
       "网络异常";
-    if (!(status === 401 && !isRefreshRequest)) {
+    if (!(status === 401 && !isRefreshRequest) && !skipErrorToast) {
       message.error(errMsg);
     }
     return Promise.reject(error);
@@ -162,24 +183,24 @@ axiosInstance.interceptors.response.use(
 
 // 包装成直接返回业务数据的类型
 const http = {
-  get: <T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> =>
+  get: <T = unknown>(url: string, config?: HttpRequestConfig): Promise<T> =>
     axiosInstance.get(url, config),
   post: <T = unknown>(
     url: string,
     data?: unknown,
-    config?: AxiosRequestConfig,
+    config?: HttpRequestConfig,
   ): Promise<T> => axiosInstance.post(url, data, config),
   put: <T = unknown>(
     url: string,
     data?: unknown,
-    config?: AxiosRequestConfig,
+    config?: HttpRequestConfig,
   ): Promise<T> => axiosInstance.put(url, data, config),
   patch: <T = unknown>(
     url: string,
     data?: unknown,
-    config?: AxiosRequestConfig,
+    config?: HttpRequestConfig,
   ): Promise<T> => axiosInstance.patch(url, data, config),
-  delete: <T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> =>
+  delete: <T = unknown>(url: string, config?: HttpRequestConfig): Promise<T> =>
     axiosInstance.delete(url, config),
 };
 

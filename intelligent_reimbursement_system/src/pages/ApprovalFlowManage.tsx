@@ -51,7 +51,11 @@ import {
   deleteApprovalFlow,
   reorderApprovalFlows,
 } from "../api/approvalFlow";
-import type { ApprovalFlow, ApproverDetail } from "../api/approvalFlow";
+import type {
+  ApprovalFlow,
+  ApprovalNodeData,
+  ApproverDetail,
+} from "../api/approvalFlow";
 import { getEmployees } from "../api/employee";
 import type { Employee } from "../api/employee";
 import { useAuthStore } from "../store/useAuthStore";
@@ -64,6 +68,8 @@ interface FlowNode {
   node_id: string;
   approvers: ApproverDetail[];
   approver_ids: string[];
+  /** 与 approver_ids 等长；是否推送 */
+  notify_flags: boolean[];
   sign_type: "countersign" | "orsign";
   sort: number;
 }
@@ -167,11 +173,13 @@ function SortableNodeCard({
   onSignTypeChange,
   onDelete,
   onRemoveApprover,
+  onNotifyChange,
 }: {
   node: FlowNode;
   onSignTypeChange: (id: string, value: "countersign" | "orsign") => void;
   onDelete: (id: string) => void;
   onRemoveApprover: (nodeId: string, approverId: string) => void;
+  onNotifyChange: (nodeId: string, approverId: string, notify: boolean) => void;
 }) {
   const {
     attributes,
@@ -229,7 +237,7 @@ function SortableNodeCard({
         {node.approvers.length === 0 ? (
           <span className="text-xs text-[var(--text-tertiary)]">暂无审批人</span>
         ) : (
-          node.approvers.map((emp) => (
+          node.approvers.map((emp, empIdx) => (
             <Tooltip
               key={emp._id}
               title={`${emp.dept_id?.name ?? ""}${emp.dept_id?.name && emp.position ? " / " : ""}${emp.position ?? ""}`}
@@ -239,6 +247,21 @@ function SortableNodeCard({
                 <span className="text-xs text-[var(--text-primary)] font-medium">
                   {emp.name}
                 </span>
+                <Tooltip title="开启后向该审批人推送待办（飞书+站内）">
+                  <span
+                    className="flex items-center gap-1 text-[10px] text-[var(--text-tertiary)]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    推送
+                    <Switch
+                      size="small"
+                      checked={node.notify_flags[empIdx] !== false}
+                      onChange={(checked) =>
+                        onNotifyChange(node.node_id, emp._id, checked)
+                      }
+                    />
+                  </span>
+                </Tooltip>
                 <CloseCircleFilled
                   className="text-[10px] text-[var(--text-tertiary)] hover:text-red-500 cursor-pointer ml-0.5"
                   onClick={() => onRemoveApprover(node.node_id, emp._id)}
@@ -345,10 +368,15 @@ export default function ApprovalFlowManage() {
           const approverDetails: ApproverDetail[] = Array.isArray(n.approver_ids)
             ? (n.approver_ids as unknown as ApproverDetail[]).filter(Boolean)
             : [];
+          const rawFlags = (n as ApprovalNodeData).notify_flags ?? [];
+          const notify_flags = approverDetails.map(
+            (_, idx) => rawFlags[idx] !== false,
+          );
           return {
             node_id: n.node_id || `node-${i}`,
             approvers: approverDetails,
             approver_ids: approverDetails.map((a) => a._id),
+            notify_flags,
             sign_type: n.sign_type,
             sort: n.sort ?? i,
           };
@@ -421,15 +449,35 @@ export default function ApprovalFlowManage() {
 
   const onRemoveApprover = (nodeId: string, approverId: string) => {
     setNodes((prev) =>
-      prev.map((n) =>
-        n.node_id === nodeId
-          ? {
-              ...n,
-              approvers: n.approvers.filter((a) => a._id !== approverId),
-              approver_ids: n.approver_ids.filter((id) => id !== approverId),
-            }
-          : n,
-      ),
+      prev.map((n) => {
+        if (n.node_id !== nodeId) return n;
+        const idx = n.approver_ids.indexOf(approverId);
+        const notify_flags = [...n.notify_flags];
+        if (idx >= 0) notify_flags.splice(idx, 1);
+        return {
+          ...n,
+          approvers: n.approvers.filter((a) => a._id !== approverId),
+          approver_ids: n.approver_ids.filter((id) => id !== approverId),
+          notify_flags,
+        };
+      }),
+    );
+  };
+
+  const onNotifyChange = (
+    nodeId: string,
+    approverId: string,
+    notify: boolean,
+  ) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.node_id !== nodeId) return n;
+        const idx = n.approver_ids.indexOf(approverId);
+        if (idx < 0) return n;
+        const notify_flags = [...n.notify_flags];
+        notify_flags[idx] = notify;
+        return { ...n, notify_flags };
+      }),
     );
   };
 
@@ -438,6 +486,7 @@ export default function ApprovalFlowManage() {
       node_id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       approvers: [],
       approver_ids: [],
+      notify_flags: [],
       sign_type: "countersign",
       sort: nodes.length,
     };
@@ -478,6 +527,7 @@ export default function ApprovalFlowManage() {
               ...n,
               approvers: [...n.approvers, approverDetail],
               approver_ids: [...n.approver_ids, empId],
+              notify_flags: [...n.notify_flags, true],
             }
           : n,
       ),
@@ -548,6 +598,9 @@ export default function ApprovalFlowManage() {
         nodes: nodes.map((n) => ({
           node_id: n.node_id,
           approver_ids: n.approver_ids,
+          notify_flags: n.approver_ids.map(
+            (_, i) => n.notify_flags[i] !== false,
+          ),
           sign_type: n.sign_type,
           sort: n.sort,
         })),
@@ -744,6 +797,7 @@ export default function ApprovalFlowManage() {
                             onSignTypeChange={onSignTypeChange}
                             onDelete={onDeleteNode}
                             onRemoveApprover={onRemoveApprover}
+                            onNotifyChange={onNotifyChange}
                           />
                           <div className="pl-9 mb-2">
                             <Button

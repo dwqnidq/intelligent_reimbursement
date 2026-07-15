@@ -49,8 +49,11 @@ export interface RegisterParams {
 export const login = (params: LoginParams) =>
   http.post<LoginResult>("/users/login", params);
 
+export const getAuthSession = () =>
+  http.get<LoginResult>("/users/session");
+
 export const refreshToken = (refreshTokenValue: string) =>
-  http.post<Pick<LoginResult, "token" | "refreshToken">>("/users/refresh-token", {
+  http.post<LoginResult>("/users/refresh-token", {
     refreshToken: refreshTokenValue,
   });
 

@@ -68,13 +68,17 @@ export default function PermissionManage() {
   const handleAssignSave = async () => {
     if (!targetPerm) return;
     try {
-      // For each role, add or remove this permission as needed
       const permId = targetPerm._id;
       const rolesToUpdate = allRoles.filter((r) => {
         const hasPerm = r.permissions?.some((p) => p._id === permId);
         const shouldHave = selectedRoleIds.includes(r._id);
         return hasPerm !== shouldHave;
       });
+
+      if (rolesToUpdate.length === 0) {
+        message.info("角色权限无变更");
+        return;
+      }
 
       await Promise.all(
         rolesToUpdate.map((r) => {
@@ -89,7 +93,7 @@ export default function PermissionManage() {
         })
       );
 
-      message.success("权限分配成功");
+      message.success("权限分配成功（已同步关联菜单；相关用户刷新页面后生效）");
       setAssignModalOpen(false);
       setTargetPerm(null);
       fetchPermissions();

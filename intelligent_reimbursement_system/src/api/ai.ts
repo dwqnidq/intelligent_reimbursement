@@ -24,6 +24,8 @@ export interface AiReimbursementFormExtractRow {
 	invoice_date?: string;
 	issuer?: string;
 	invoice_duplicate?: boolean;
+	/** 与本批其他文件发票号码重复（非历史已上传） */
+	invoice_batch_duplicate?: boolean;
 }
 
 export type AiReimbursementFormExtractPayload =

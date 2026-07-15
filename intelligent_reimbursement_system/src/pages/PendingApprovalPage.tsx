@@ -10,6 +10,7 @@ import {
   message,
   Avatar,
   Tooltip,
+  Alert,
 } from "antd";
 import {
   ReloadOutlined,
@@ -334,40 +335,72 @@ export default function PendingApprovalPage() {
       title: "操作",
       key: "actions",
       width: 200,
-      render: (_: unknown, record: PendingApprovalItem) => (
-        <div className="flex gap-2 flex-wrap items-center">
-          <Button
-            type="link"
-            size="small"
-            onClick={() => openDetail(record)}
-          >
-            详情
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            className="text-green-500"
-            loading={approvingRecordId === record.approval_record._id}
-            onClick={() => handleApprove(record.approval_record._id)}
-          >
-            通过
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            className="text-red-500"
-            onClick={() => handleRejectWithCheck(record.approval_record._id, record.approval_record)}
-          >
-            驳回
-          </Button>
-        </div>
-      ),
+      render: (_: unknown, record: PendingApprovalItem) => {
+        const skipped = record.ui_state === "skipped";
+        return (
+          <div className="flex gap-2 flex-wrap items-center">
+            <Button
+              type="link"
+              size="small"
+              onClick={() => openDetail(record)}
+            >
+              详情
+            </Button>
+            {skipped ? (
+              <Tooltip
+                title={`该报销记录已审批通过，审批人：${record.approved_by_name || "—"}`}
+              >
+                <span>
+                  <Button type="link" size="small" disabled>
+                    通过
+                  </Button>
+                  <Button type="link" size="small" disabled>
+                    驳回
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  className="text-green-500"
+                  loading={approvingRecordId === record.approval_record._id}
+                  onClick={() => handleApprove(record.approval_record._id)}
+                >
+                  通过
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  className="text-red-500"
+                  onClick={() =>
+                    handleRejectWithCheck(
+                      record.approval_record._id,
+                      record.approval_record,
+                    )
+                  }
+                >
+                  驳回
+                </Button>
+              </>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
   return (
     <div className="w-full flex flex-col flex-1 min-h-0">
       <div className="w-full mx-auto space-y-6 flex-1 min-h-0">
+        {list.some((i) => i.ui_state === "skipped") && (
+          <Alert
+            type="info"
+            showIcon
+            message="部分待办已由其他审批人通过（或签），相关操作已禁用"
+          />
+        )}
         <Card
           title={
             <span className="flex items-center gap-2.5">

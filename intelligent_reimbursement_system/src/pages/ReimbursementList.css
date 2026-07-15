@@ -1,0 +1,483 @@
+/* 报销记录页 — 飞书卡片风格 */
+.reimbursement-page {
+  --rb-brand: #0f766e;
+  --rb-brand-soft: #ccfbf1;
+  --rb-brand-deep: #115e59;
+  --rb-ink: #0f172a;
+  --rb-muted: #64748b;
+  --rb-line: #e2e8f0;
+  --rb-soft: #f8fafc;
+  --rb-card-shadow: 0 12px 40px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px - 48px);
+  min-height: 520px;
+}
+
+.reimbursement-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+
+.reimbursement-page-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reimbursement-split {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+.reimbursement-sidebar {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.reimbursement-filter {
+  padding: 14px;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #fafbfc, #f4f7fa);
+  flex-shrink: 0;
+}
+
+.reimbursement-filter .ant-form-item {
+  margin-bottom: 8px;
+}
+
+.reimbursement-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.reimbursement-card-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+}
+
+.reimbursement-card-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.reimbursement-card-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.reimbursement-pagination {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* 飞书风格卡片 */
+.rb-card {
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid var(--rb-line);
+  background: #fff;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.rb-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--rb-card-shadow);
+}
+
+.rb-card.active {
+  border-color: var(--rb-line);
+}
+
+.rb-card-banner {
+  padding: 12px 14px 10px;
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+}
+
+.rb-card-banner > * {
+  position: relative;
+  z-index: 1;
+}
+
+.rb-card-banner::after {
+  content: "";
+  position: absolute;
+  right: -16px;
+  top: -24px;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.rb-card-banner.pending {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #3b82f6 100%);
+}
+
+.rb-card-banner.approved {
+  background: linear-gradient(135deg, #15803d 0%, #16a34a 55%, #22c55e 100%);
+}
+
+.rb-card-banner.rejected {
+  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 55%, #ef4444 100%);
+}
+
+.rb-card-banner.mixed {
+  background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 55%, #8b5cf6 100%);
+}
+
+/* 卡片左侧状态色条 */
+.rb-card--pending { border-left: 3px solid #2563eb; }
+.rb-card--approved { border-left: 3px solid #16a34a; }
+.rb-card--rejected { border-left: 3px solid #dc2626; }
+.rb-card--mixed { border-left: 3px solid #7c3aed; }
+
+.rb-card--pending.active { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2), var(--rb-card-shadow); }
+.rb-card--approved.active { border-color: #4ade80; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2), var(--rb-card-shadow); }
+.rb-card--rejected.active { border-color: #f87171; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2), var(--rb-card-shadow); }
+.rb-card--mixed.active { border-color: #a78bfa; box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2), var(--rb-card-shadow); }
+
+.rb-card-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  margin-bottom: 6px;
+}
+
+.rb-card-banner h3 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+
+.rb-card-banner p {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.9;
+  color: #fff;
+}
+
+.rb-card-body {
+  padding: 10px 12px 12px;
+  background: #fff;
+}
+
+.rb-card-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rb-card-category {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rb-ink);
+  line-height: 1.3;
+}
+
+.rb-card-meta {
+  font-size: 11px;
+  color: var(--rb-muted);
+  margin-top: 2px;
+}
+
+.rb-card-kv {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 3px 8px;
+  font-size: 11px;
+}
+
+.rb-card-kv .k {
+  color: var(--rb-muted);
+}
+
+.rb-card-kv .v {
+  color: #334155;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dark .rb-card-body {
+  background: var(--bg-card);
+}
+
+.dark .rb-card-category {
+  color: var(--text-primary);
+}
+
+.dark .rb-card-kv .v {
+  color: var(--text-secondary);
+}
+
+.rb-card-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--rb-brand-deep);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rb-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rb-line);
+  font-size: 11px;
+  color: var(--rb-muted);
+}
+
+.rb-card-footer .attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--rb-soft);
+  border: 1px solid var(--rb-line);
+  color: #475569;
+}
+
+.rb-batch-group {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rb-batch-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--rb-line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fafbfc, #f1f5f9);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.rb-batch-header--pending {
+  border-left: 3px solid #2563eb;
+  background: linear-gradient(90deg, #eff6ff 0%, #fafbfc 40%);
+}
+
+.rb-batch-header--approved {
+  border-left: 3px solid #16a34a;
+  background: linear-gradient(90deg, #f0fdf4 0%, #fafbfc 40%);
+}
+
+.rb-batch-header--rejected {
+  border-left: 3px solid #dc2626;
+  background: linear-gradient(90deg, #fef2f2 0%, #fafbfc 40%);
+}
+
+.rb-batch-header--mixed {
+  border-left: 3px solid #7c3aed;
+  background: linear-gradient(90deg, #f5f3ff 0%, #fafbfc 40%);
+}
+
+.rb-batch-status-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.rb-batch-header--pending .rb-batch-status-tag { background: #dbeafe; color: #1d4ed8; }
+.rb-batch-header--approved .rb-batch-status-tag { background: #dcfce7; color: #15803d; }
+.rb-batch-header--rejected .rb-batch-status-tag { background: #fee2e2; color: #b91c1c; }
+.rb-batch-header--mixed .rb-batch-status-tag { background: #ede9fe; color: #6d28d9; }
+
+.rb-batch-header--pending .rb-batch-chevron { color: #2563eb; }
+.rb-batch-header--approved .rb-batch-chevron { color: #16a34a; }
+.rb-batch-header--rejected .rb-batch-chevron { color: #dc2626; }
+.rb-batch-header--mixed .rb-batch-chevron { color: #7c3aed; }
+
+.rb-batch-header:hover {
+  filter: brightness(0.98);
+}
+
+.rb-batch-chevron {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.rb-batch-header.expanded .rb-batch-chevron {
+  transform: rotate(90deg);
+}
+
+.rb-batch-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rb-batch-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rb-ink);
+  line-height: 1.3;
+}
+
+.rb-batch-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--rb-muted);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.rb-batch-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 6px;
+  border-left: 2px solid #ccfbf1;
+  margin-left: 8px;
+}
+
+.dark .rb-batch-header {
+  background: linear-gradient(180deg, #1e293b, #0f172a);
+  border-color: var(--border-color);
+}
+
+.dark .rb-batch-title {
+  color: var(--text-primary);
+}
+
+.dark .rb-batch-children {
+  border-left-color: #115e59;
+}
+
+/* 右侧详情面板 */
+.reimbursement-detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-card);
+}
+
+.reimbursement-detail-header.rb-card-banner {
+  flex-shrink: 0;
+  padding: 14px 20px 12px;
+  border-bottom: none;
+}
+
+.reimbursement-detail-header.rb-card-banner h3 {
+  font-size: 16px;
+}
+
+.reimbursement-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.reimbursement-detail-actions {
+  margin-bottom: 14px;
+}
+
+.reimbursement-detail-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  gap: 8px;
+  padding: 40px;
+}
+
+.reimbursement-detail-empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #0d9488, #0f766e);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+}
+
+.reimbursement-detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .reimbursement-split {
+    flex-direction: column;
+  }
+
+  .reimbursement-sidebar {
+    width: 100%;
+    max-height: 45vh;
+  }
+
+  .reimbursement-detail {
+    min-height: 320px;
+  }
+}

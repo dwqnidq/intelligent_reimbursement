@@ -35,7 +35,10 @@ export default function RegisterPage() {
   return (
     <div
       className="h-screen flex items-center justify-center px-4 py-8 relative"
-      style={{ background: "linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #f0f9ff 100%)" }}
+      style={{
+        background:
+          "radial-gradient(1200px 600px at 10% -10%, #d1fae5 0%, transparent 55%), radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%), linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%)",
+      }}
     >
       <div
         style={{
@@ -61,8 +64,8 @@ export default function RegisterPage() {
             className="inline-flex items-center justify-center rounded-2xl mb-5"
             style={{
               width: 56, height: 56,
-              background: "#2563eb",
-              boxShadow: "0 8px 30px rgba(37, 99, 235, 0.3)",
+              background: "linear-gradient(145deg, #0d9488, #0f766e)",
+              boxShadow: "0 8px 30px rgba(15, 118, 110, 0.3)",
             }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">

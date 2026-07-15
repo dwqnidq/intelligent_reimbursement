@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import { UserProvider } from "./context/UserContext";
 import { useAuthStore } from "./store/useAuthStore";
+import { appTheme } from "./theme/antdTheme";
 import AuthGuard from "./router/AuthGuard";
 import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/LoginPage";
@@ -61,7 +62,7 @@ export default function App() {
     });
 
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider locale={zhCN} theme={appTheme}>
       <UserProvider>
         <BrowserRouter>
           <Routes>

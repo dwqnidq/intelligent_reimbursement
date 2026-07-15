@@ -1,10 +1,13 @@
 import http from "./http";
 
 export interface ApproverInfo {
+  approver_id?: string;
   name: string;
   avatar: string;
   dept_name: string;
   position: string;
+  notify?: boolean;
+  participation?: "pending" | "approved" | "skipped" | "rejected";
 }
 
 export interface SnapshotNode {
@@ -48,6 +51,8 @@ export interface PendingApprovalItem {
     attachments: string[];
     reject_reason: string | null;
   };
+  ui_state?: "pending" | "skipped";
+  approved_by_name?: string;
 }
 
 export interface ApprovalHistoryItem {
@@ -70,10 +75,14 @@ export interface ApprovalHistoryItem {
 }
 
 export const getMyPendingApprovals = () =>
-  http.get<PendingApprovalItem[]>("/approvals/mine");
+  http.get<PendingApprovalItem[]>("/approvals/mine", {
+    skipErrorToast: true,
+  });
 
 export const getMyApprovalHistory = () =>
-  http.get<ApprovalHistoryItem[]>("/approvals/history");
+  http.get<ApprovalHistoryItem[]>("/approvals/history", {
+    skipErrorToast: true,
+  });
 
 export const approveRecord = (id: string, comment?: string) =>
   http.post<ApprovalRecordItem>(`/approvals/${id}/approve`, { comment });
@@ -82,7 +91,9 @@ export const rejectRecord = (id: string, comment?: string) =>
   http.post<ApprovalRecordItem>(`/approvals/${id}/reject`, { comment });
 
 export const getApprovalRecordByReimbursement = (reimbursementId: string) =>
-  http.get<ApprovalRecordItem | null>(`/approvals/record/${reimbursementId}`);
+  http.get<ApprovalRecordItem | null>(`/approvals/record/${reimbursementId}`, {
+    skipErrorToast: true,
+  });
 
 export const transferRecord = (
   id: string,

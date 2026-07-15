@@ -53,6 +53,28 @@ import { CSS } from "@dnd-kit/utilities";
 
 const { TextArea } = Input;
 
+/** 兼容历史 string[] 与 { label, value }[] */
+function normalizeFieldOptions(raw: unknown): FieldOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: FieldOption[] = [];
+  for (const item of raw) {
+    if (item == null) continue;
+    if (typeof item === "string") {
+      const s = item.trim();
+      if (s) out.push({ label: s, value: s });
+      continue;
+    }
+    if (typeof item === "object" && !Array.isArray(item)) {
+      const o = item as { label?: unknown; value?: unknown };
+      const label = String(o.label ?? "").trim();
+      const value = String(o.value ?? label).trim();
+      if (!label && !value) continue;
+      out.push({ label: label || value, value: value || label });
+    }
+  }
+  return out;
+}
+
 interface FieldRow extends TypeFieldPayload {
   _rowKey: string;
 }
@@ -68,6 +90,7 @@ interface PendingCreateType {
     name: string;
     label: string;
     remark?: string;
+    description?: string;
     formula?: string;
     over_limit_threshold?: number;
     status: 0 | 1;
@@ -349,6 +372,7 @@ export default function ReimbursementTypeCreate() {
     name: draft.name,
     label: draft.label,
     remark: draft.remark,
+    description: draft.description,
     formula: draft.formula || undefined,
     over_limit_threshold: draft.over_limit_threshold ?? undefined,
     status: enabled ? (1 as const) : (0 as const),
@@ -388,7 +412,7 @@ export default function ReimbursementTypeCreate() {
     setFields(
       (one.fields ?? []).map((f) => ({
         ...f,
-        options: f.options ?? [],
+        options: normalizeFieldOptions(f.options),
         _rowKey: Date.now().toString() + Math.random(),
       })),
     );
@@ -497,6 +521,7 @@ export default function ReimbursementTypeCreate() {
       code: record.code,
       name: record.name,
       label: record.label,
+      description: record.description ?? "",
       formula: record.formula ?? "",
       over_limit_threshold:
         (record as unknown as { over_limit_threshold?: number })
@@ -506,6 +531,7 @@ export default function ReimbursementTypeCreate() {
     setEditFields(
       (record.fields ?? []).map((f) => ({
         ...f,
+        options: normalizeFieldOptions(f.options),
         _rowKey: Date.now().toString() + Math.random(),
       })),
     );
@@ -561,6 +587,7 @@ export default function ReimbursementTypeCreate() {
     name: string;
     label: string;
     remark?: string;
+    description?: string;
     formula?: string;
     over_limit_threshold?: number;
     enabled: boolean;
@@ -596,6 +623,7 @@ export default function ReimbursementTypeCreate() {
           name,
           label,
           remark: values.remark,
+          description: values.description,
           formula: values.formula || undefined,
           over_limit_threshold: values.over_limit_threshold ?? undefined,
           status: values.enabled ? 1 : 0,
@@ -636,7 +664,7 @@ export default function ReimbursementTypeCreate() {
     setPendingEditFields(
       (item.payload.fields ?? []).map((f) => ({
         ...f,
-        options: f.options ?? [],
+        options: normalizeFieldOptions(f.options),
         _rowKey: `${Date.now()}-${Math.random()}`,
       })),
     );
@@ -878,6 +906,7 @@ export default function ReimbursementTypeCreate() {
     code: string;
     name: string;
     label: string;
+    description?: string;
     formula?: string;
     over_limit_threshold?: number;
     status: boolean;
@@ -892,6 +921,7 @@ export default function ReimbursementTypeCreate() {
         code: values.code,
         name: values.name,
         label: values.label,
+        description: values.description,
         formula: values.formula || undefined,
         over_limit_threshold: values.over_limit_threshold ?? undefined,
         status: values.status ? 1 : 0,
@@ -1272,6 +1302,16 @@ export default function ReimbursementTypeCreate() {
             </Form.Item>
             <Form.Item label="备注" name="remark">
               <TextArea rows={2} placeholder="选填" />
+            </Form.Item>
+            <Form.Item
+              label="类型描述"
+              name="description"
+              tooltip="说明该类型的业务范围、典型票据与排除项，供 AI 发票识别时精准匹配"
+            >
+              <TextArea
+                rows={4}
+                placeholder="如：日常办公采购与消耗，典型票据为办公用品发票；排除员工餐饮、差旅住宿等"
+              />
             </Form.Item>
             <Form.Item
               label="计算公式"
@@ -1683,12 +1723,13 @@ export default function ReimbursementTypeCreate() {
                 {
                   title: "选项",
                   dataIndex: "options",
-                  render: (v: { label: string; value: string }[]) =>
-                    v?.length
-                      ? v.map((o) => <Tag key={o.value}>{o.label}</Tag>)
-                      : "-",
-                },
-              ]}
+                  render: (v: unknown) => {
+                    const opts = normalizeFieldOptions(v);
+                    return opts.length
+                      ? opts.map((o) => <Tag key={o.value}>{o.label}</Tag>)
+                      : "-";
+                  },
+                },              ]}
             />
 
             {(() => {
@@ -1777,6 +1818,13 @@ export default function ReimbursementTypeCreate() {
                 rules={[{ required: true, message: "请输入展示名称" }]}
               >
                 <Input placeholder="如 福利费、差旅费" />
+              </Form.Item>
+              <Form.Item
+                label="类型描述"
+                name="description"
+                tooltip="说明该类型的业务范围、典型票据与排除项，供 AI 发票识别时精准匹配"
+              >
+                <TextArea rows={4} placeholder="选填，建议填写以利于 AI 识别" />
               </Form.Item>
               <Form.Item
                 label="计算公式"

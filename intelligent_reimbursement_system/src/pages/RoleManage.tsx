@@ -12,6 +12,7 @@ import {
   Popconfirm,
   Transfer,
   Select,
+  TreeSelect,
 } from "antd";
 import {
   PlusOutlined,
@@ -26,13 +27,16 @@ import {
   updateRole,
   deleteRole,
   assignRolePermissions,
+  assignRoleMenus,
   getPermissions,
   getAllUsers,
   assignUserRoles,
 } from "../api/role";
 import { getEmployees } from "../api/employee";
+import { getMenuFlat } from "../api/menu";
 import type { RoleItem, PermissionItem } from "../api/role";
 import type { Employee } from "../api/employee";
+import type { MenuItem } from "../api/menu";
 
 export default function RoleManage() {
   const [roles, setRoles] = useState<RoleItem[]>([]);
@@ -42,11 +46,13 @@ export default function RoleManage() {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
-  // Permission assignment
+  // Permission / menu assignment
   const [permModalOpen, setPermModalOpen] = useState(false);
   const [permTargetRole, setPermTargetRole] = useState<RoleItem | null>(null);
   const [allPermissions, setAllPermissions] = useState<PermissionItem[]>([]);
+  const [allMenus, setAllMenus] = useState<MenuItem[]>([]);
   const [selectedPermKeys, setSelectedPermKeys] = useState<string[]>([]);
+  const [selectedMenuKeys, setSelectedMenuKeys] = useState<string[]>([]);
   const [permLoading, setPermLoading] = useState(false);
 
   // Employee role assignment
@@ -132,26 +138,49 @@ export default function RoleManage() {
     }
   };
 
-  // Permission assignment
+  // Permission + menu assignment
   const openPermModal = async (role: RoleItem) => {
     setPermTargetRole(role);
     setPermModalOpen(true);
     setPermLoading(true);
     try {
-      const perms = await getPermissions();
+      const [perms, menus] = await Promise.all([getPermissions(), getMenuFlat()]);
       setAllPermissions(Array.isArray(perms) ? perms : []);
+      setAllMenus(Array.isArray(menus) ? menus : []);
       setSelectedPermKeys(role.permissions?.map((p) => p._id) ?? []);
+      setSelectedMenuKeys(role.menus?.map((m) => m._id) ?? []);
     } catch {
     } finally {
       setPermLoading(false);
     }
   };
 
+  type MenuTreeNode = {
+    value: string;
+    title: string;
+    children?: MenuTreeNode[];
+  };
+
+  const buildMenuTreeSelect = (
+    menus: MenuItem[],
+    parentId: string | null = null,
+  ): MenuTreeNode[] =>
+    menus
+      .filter((m) => String(m.parent_id ?? null) === String(parentId ?? null))
+      .filter((m) => m.type !== "button")
+      .map((m) => ({
+        value: m._id,
+        title: m.name,
+        children: buildMenuTreeSelect(menus, m._id),
+      }));
+
   const handlePermSave = async () => {
     if (!permTargetRole) return;
     try {
       await assignRolePermissions(permTargetRole._id, selectedPermKeys);
-      message.success("权限分配成功");
+      // 显式写入菜单（侧边栏可见性依赖 menus，仅有 permissions 不够）
+      await assignRoleMenus(permTargetRole._id, selectedMenuKeys);
+      message.success("权限与菜单已保存（相关用户刷新页面后生效）");
       setPermModalOpen(false);
       setPermTargetRole(null);
       fetchRoles();
@@ -191,16 +220,28 @@ export default function RoleManage() {
     if (!empTargetRole) return;
     try {
       const roleId = empTargetRole._id;
-      // Map selected employee IDs to user IDs
       const selectedUserIds = allEmployees
         .filter((e) => selectedEmpUserIds.includes(e._id) && e.uid)
         .map((e) => e.uid!);
-      // Users that need updating: had role but removed, or didn't have role but added
+      const unboundCount = allEmployees.filter(
+        (e) => selectedEmpUserIds.includes(e._id) && !e.uid,
+      ).length;
+      if (unboundCount > 0) {
+        message.warning(
+          `有 ${unboundCount} 名员工未绑定系统账号，无法分配角色（请先在员工管理关联用户）`,
+        );
+      }
+
       const usersToUpdate = allUsers.filter((u: any) => {
         const hasRole = u.roles?.some((r: any) => r._id === roleId);
         const shouldHave = selectedUserIds.includes(u._id);
         return hasRole !== shouldHave;
       });
+
+      if (usersToUpdate.length === 0) {
+        message.info("角色成员无变更");
+        return;
+      }
 
       await Promise.all(
         usersToUpdate.map((u: any) => {
@@ -215,7 +256,7 @@ export default function RoleManage() {
         })
       );
 
-      message.success("员工角色分配成功");
+      message.success("员工角色分配成功（相关用户刷新页面后生效）");
       setEmpModalOpen(false);
       setEmpTargetRole(null);
     } catch {
@@ -280,7 +321,7 @@ export default function RoleManage() {
             icon={<SafetyOutlined />}
             onClick={() => openPermModal(record)}
           >
-            权限
+            权限/菜单
           </Button>
           <Button
             type="link"
@@ -382,9 +423,9 @@ export default function RoleManage() {
           </Form>
         </Modal>
 
-        {/* Permission assignment modal */}
+        {/* Permission + menu assignment modal */}
         <Modal
-          title={`分配权限 — ${permTargetRole?.label ?? ""}`}
+          title={`分配权限与菜单 — ${permTargetRole?.label ?? ""}`}
           open={permModalOpen}
           onCancel={() => {
             setPermModalOpen(false);
@@ -393,29 +434,53 @@ export default function RoleManage() {
           onOk={handlePermSave}
           okText="保存"
           cancelText="取消"
-          width={720}
+          width={760}
         >
           {permLoading ? (
             <div className="text-center py-8 text-[var(--text-tertiary)]">
               加载中...
             </div>
           ) : (
-            <Transfer
-              dataSource={allPermissions.map((p) => ({
-                key: p._id,
-                title: `${p.label} (${p.name})`,
-                description: p.description ?? "",
-              }))}
-              titles={["可选权限", "已分配"]}
-              targetKeys={selectedPermKeys}
-              onChange={(keys) => setSelectedPermKeys(keys as string[])}
-              render={(item) => item.title ?? ""}
-              listStyle={{ width: 300, height: 400 }}
-              showSearch
-              filterOption={(input, option) =>
-                (option?.title ?? "").toLowerCase().includes(input.toLowerCase())
-              }
-            />
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-[var(--text-secondary)] mb-2">
+                  功能权限（按钮/接口能力）：
+                </p>
+                <Transfer
+                  dataSource={allPermissions.map((p) => ({
+                    key: p._id,
+                    title: `${p.label} (${p.name})`,
+                    description: p.description ?? "",
+                  }))}
+                  titles={["可选权限", "已分配"]}
+                  targetKeys={selectedPermKeys}
+                  onChange={(keys) => setSelectedPermKeys(keys as string[])}
+                  render={(item) => item.title ?? ""}
+                  listStyle={{ width: 300, height: 280 }}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.title ?? "").toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </div>
+              <div>
+                <p className="text-sm text-[var(--text-secondary)] mb-2">
+                  可见菜单（侧边栏与页面入口，缺此则有权限也进不了页面）：
+                </p>
+                <TreeSelect
+                  className="w-full"
+                  treeCheckable
+                  showCheckedStrategy={TreeSelect.SHOW_ALL}
+                  placeholder="选择该角色可见的菜单"
+                  value={selectedMenuKeys}
+                  onChange={(keys) => setSelectedMenuKeys(keys as string[])}
+                  treeData={buildMenuTreeSelect(allMenus)}
+                  maxTagCount="responsive"
+                  allowClear
+                  treeDefaultExpandAll
+                />
+              </div>
+            </div>
           )}
         </Modal>
 

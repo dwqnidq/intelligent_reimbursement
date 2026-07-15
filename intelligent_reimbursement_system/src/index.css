@@ -9,53 +9,67 @@ body,
   padding: 0;
 }
 
-/* ===== CSS 变量 ===== */
+/* ===== CSS 变量 — 飞书青绿风格 ===== */
 :root {
-  --bg-page: #f5f7fa;
+  --brand: #0f766e;
+  --brand-soft: #ccfbf1;
+  --brand-deep: #115e59;
+  --brand-mid: #0d9488;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --soft: #f8fafc;
+  --bg-page: #f1f5f9;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
-  --bg-header: #ffffff;
-  --text-primary: #1e293b;
+  --bg-header: rgba(255, 255, 255, 0.92);
+  --text-primary: #0f172a;
   --text-secondary: #64748b;
   --text-tertiary: #94a3b8;
   --border-color: #e2e8f0;
   --border-color-hover: #cbd5e1;
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-bg: #eff6ff;
-  --color-primary-border: #bfdbfe;
+  --color-primary: #0f766e;
+  --color-primary-hover: #0d9488;
+  --color-primary-bg: #f0fdfa;
+  --color-primary-bg-strong: #ecfdf5;
+  --color-primary-border: #99f6e4;
   --color-success: #16a34a;
-  --color-warning: #d97706;
+  --color-warning: #ea580c;
   --color-danger: #dc2626;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-card-hover: 0 8px 25px rgba(0, 0, 0, 0.08), 0 4px 10px rgba(0, 0, 0, 0.04);
-  --shadow-dropdown: 0 10px 30px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-header: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --radius-card: 10px;
-  --radius-btn: 8px;
-  --radius-input: 8px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-card: 0 12px 40px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 18px 48px rgba(15, 23, 42, 0.1), 0 4px 12px rgba(15, 23, 42, 0.05);
+  --shadow-dropdown: 0 10px 30px rgba(15, 23, 42, 0.1), 0 4px 8px rgba(15, 23, 42, 0.04);
+  --shadow-header: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --radius-card: 14px;
+  --radius-btn: 10px;
+  --radius-input: 10px;
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s ease;
+  --page-gradient:
+    radial-gradient(1200px 600px at 10% -10%, #d1fae5 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%),
+    linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%);
 }
 
 .dark {
   --bg-page: #0f172a;
   --bg-card: #1e293b;
   --bg-sidebar: #0f172a;
-  --bg-header: #1e293b;
+  --bg-header: rgba(15, 23, 42, 0.95);
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
   --text-tertiary: #64748b;
   --border-color: #334155;
   --border-color-hover: #475569;
-  --color-primary: #3b82f6;
-  --color-primary-hover: #60a5fa;
-  --color-primary-bg: #1e3a5f;
-  --color-primary-border: #1e40af;
+  --color-primary: #2dd4bf;
+  --color-primary-hover: #5eead4;
+  --color-primary-bg: #134e4a;
+  --color-primary-border: #115e59;
   --color-success: #4ade80;
-  --color-warning: #fbbf24;
+  --color-warning: #fb923c;
   --color-danger: #f87171;
+  --page-gradient: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-card-hover: 0 8px 25px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.07);
@@ -94,6 +108,97 @@ body,
   background: var(--bg-page) !important;
 }
 
+body {
+  color: var(--text-primary);
+  background: var(--page-gradient);
+  background-attachment: fixed;
+}
+
+/* ===== App Shell ===== */
+.app-shell .app-content {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+}
+
+.app-header {
+  height: 56px !important;
+  line-height: normal !important;
+  padding: 0 20px !important;
+  flex-shrink: 0;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px;
+  background: var(--bg-header) !important;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-header) !important;
+}
+
+.app-header-trigger {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 10px !important;
+  color: var(--color-primary) !important;
+}
+
+.app-header-trigger:hover {
+  background: rgba(15, 118, 110, 0.06) !important;
+}
+
+/* 页面标题图标 — 渐变实心，替代浅绿底块 */
+.page-title-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: linear-gradient(145deg, #0d9488, #0f766e);
+  color: #fff !important;
+  font-size: 14px;
+  box-shadow: 0 4px 10px rgba(15, 118, 110, 0.22);
+}
+
+.page-title-icon .anticon,
+.page-title-icon svg {
+  color: #fff !important;
+}
+
+.app-sider {
+  background: var(--bg-sidebar) !important;
+  border-right: 1px solid var(--border-color) !important;
+  box-shadow: none !important;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-sidebar) !important;
+}
+
+.app-sider-menu {
+  padding: 8px 0 16px;
+}
+
+.app-logo-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #0d9488, #0f766e);
+  color: #fff;
+  font-size: 18px;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+}
+
+.app-user-avatar {
+  background: linear-gradient(145deg, #0d9488, #0f766e) !important;
+}
+
 /* ===== 侧边栏 ===== */
 .ant-layout-sider {
   background: var(--bg-sidebar) !important;
@@ -103,12 +208,14 @@ body,
 .ant-layout-sider-children {
   background: var(--bg-sidebar) !important;
 }
+.app-side-menu,
 .ant-menu {
   background: transparent !important;
   border-inline-end: none !important;
   padding: 4px 0 !important;
 }
-.ant-menu-item {
+.ant-menu-item,
+.ant-menu-submenu-title {
   border-radius: 10px !important;
   margin: 2px 12px !important;
   width: calc(100% - 24px) !important;
@@ -116,13 +223,44 @@ body,
   height: 40px !important;
   line-height: 40px !important;
 }
-.ant-menu-item-selected {
-  background: var(--color-primary-bg) !important;
-  color: var(--color-primary) !important;
-  font-weight: 500 !important;
+.ant-menu-submenu .ant-menu-item {
+  padding-left: 44px !important;
 }
-.ant-menu-item:hover:not(.ant-menu-item-selected) {
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent) !important;
+.ant-menu-item-selected {
+  background: #ffffff !important;
+  color: var(--brand-deep) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06) !important;
+  border: 1px solid var(--line) !important;
+  position: relative;
+  overflow: visible !important;
+}
+.ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #0d9488, #0f766e);
+}
+.ant-menu-item-selected .ant-menu-item-icon,
+.ant-menu-item-selected .anticon {
+  color: var(--brand) !important;
+}
+.ant-menu-item:hover:not(.ant-menu-item-selected),
+.ant-menu-submenu-title:hover {
+  background: rgba(15, 118, 110, 0.05) !important;
+  color: var(--brand-deep) !important;
+}
+.ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: var(--brand-deep) !important;
+  font-weight: 600;
+  background: transparent !important;
+}
+.ant-menu-submenu-arrow {
+  color: var(--text-tertiary) !important;
 }
 
 /* ===== Header ===== */
@@ -206,13 +344,13 @@ body,
   height: 36px !important;
 }
 .ant-btn-primary {
-  background: var(--color-primary) !important;
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%) !important;
   border: none !important;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2) !important;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.25) !important;
 }
 .ant-btn-primary:hover {
-  background: var(--color-primary-hover) !important;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3) !important;
+  background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%) !important;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.35) !important;
 }
 .ant-btn-default {
   border-color: var(--border-color-hover) !important;
@@ -315,11 +453,10 @@ body,
   background: var(--color-primary) !important;
   border-color: var(--color-primary) !important;
 }
+
 .ant-pagination-item-active a {
   color: #fff !important;
 }
-
-/* ===== Breadcrumb ===== */
 .ant-breadcrumb-link,
 .ant-breadcrumb-separator {
   color: var(--text-secondary) !important;

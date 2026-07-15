@@ -3,6 +3,8 @@ import http from "./http";
 export interface ApprovalNodeData {
   node_id: string;
   approver_ids: string[];
+  /** 与 approver_ids 等长；是否向该审批人推送 */
+  notify_flags?: boolean[];
   sign_type: "countersign" | "orsign";
   sort: number;
 }

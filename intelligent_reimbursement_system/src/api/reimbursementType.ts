@@ -28,6 +28,7 @@ export interface CreateReimbursementTypeParams {
   name: string;
   label: string;
   remark?: string;
+  description?: string;
   formula?: string;
   over_limit_threshold?: number;
   status: 0 | 1;
@@ -46,6 +47,7 @@ export interface UpdateReimbursementTypeParams {
   code?: string;
   name?: string;
   label?: string;
+  description?: string;
   formula?: string;
   over_limit_threshold?: number;
   status?: 0 | 1;

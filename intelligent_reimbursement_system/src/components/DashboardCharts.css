@@ -1,0 +1,132 @@
+.dashboard-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dashboard-chart-card {
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-page);
+  padding: 18px 20px 12px;
+  height: 100%;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.dashboard-chart-card--wide {
+  min-height: 280px;
+}
+
+.dashboard-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.dashboard-chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dashboard-chart-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 4px 0 0;
+}
+
+.dashboard-chart-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.dashboard-chart-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-chart-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  min-height: 220px;
+}
+
+.dashboard-charts .recharts-cartesian-grid-horizontal line,
+.dashboard-charts .recharts-cartesian-grid-vertical line {
+  stroke: var(--border-color);
+}
+
+.dashboard-charts .recharts-text {
+  fill: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.dashboard-charts .recharts-tooltip-wrapper {
+  outline: none;
+}
+
+.dashboard-chart-tooltip {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+}
+
+.dashboard-chart-tooltip-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.dashboard-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.dashboard-chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dashboard-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.dashboard-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dashboard-chart-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}

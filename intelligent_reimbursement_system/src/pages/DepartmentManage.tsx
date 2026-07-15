@@ -208,18 +208,6 @@ export default function DepartmentManage() {
       key: "code",
     },
     {
-      title: "上级部门",
-      key: "parent",
-      render: (_: unknown, record: Department) => {
-        const parent = record.parent_id;
-        if (!parent) {
-          return <span className="text-[var(--text-tertiary)]">根部门</span>;
-        }
-        const parentName = typeof parent === "string" ? "-" : parent.name;
-        return parentName;
-      },
-    },
-    {
       title: "负责人",
       key: "manager",
       render: (_: unknown, record: Department) =>
@@ -301,6 +289,7 @@ export default function DepartmentManage() {
             columns={columns}
             pagination={false}
             size="middle"
+            childrenColumnName="children"
             locale={{ emptyText: "暂无部门数据" }}
           />
         </Card>

@@ -27,6 +27,7 @@ export interface ReimbursementType {
   code: string;
   name: string;
   label: string;
+  description?: string;
   fields: TypeField[];
   export_fields: ExportField[];
   formula?: string;
@@ -111,11 +112,16 @@ export interface ReimbursementListParams {
   page?: number;
   size?: number;
   category?: string;
+  /** 逗号分隔多状态，如 pending,approved */
   status?: string;
   min_amount?: number;
   max_amount?: number;
   start_date?: string;
   end_date?: string;
+  /** 逗号分隔员工 ID */
+  employee_ids?: string;
+  /** 逗号分隔部门 ID（含子部门） */
+  department_ids?: string;
 }
 
 export const getReimbursementTypes = () =>
@@ -153,28 +159,210 @@ export const updateReimbursementStatus = (
 export const withdrawReimbursement = (id: string) =>
   http.patch<void>(`/reimbursements/${id}`, { status: "withdrawn" });
 
-export const exportReimbursementsExcel = (
-  params?: ReimbursementListParams & { categories?: string[] },
-) => {
-  // 多类型转逗号分隔传给后端
-  const { categories, ...rest } = params ?? {};
-  const queryParams = {
-    ...rest,
-    ...(categories && categories.length > 0
-      ? { category: categories.join(",") }
-      : {}),
+async function readBlobErrorMessage(data: unknown): Promise<string | null> {
+  if (!(data instanceof Blob)) return null;
+  try {
+    const text = await data.text();
+    const body = JSON.parse(text) as { message?: string };
+    return body.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ExportProgressEvent {
+  type: "progress";
+  percent: number;
+  message: string;
+  current?: number;
+  total?: number;
+}
+
+export interface ExportDoneEvent {
+  type: "done";
+  token: string;
+  filename: string;
+}
+
+export interface ExportErrorEvent {
+  type: "error";
+  message: string;
+}
+
+export type ExportStreamEvent =
+  | ExportProgressEvent
+  | ExportDoneEvent
+  | ExportErrorEvent;
+
+function getToken(): string {
+  try {
+    const raw = localStorage.getItem("auth-storage");
+    return raw ? (JSON.parse(raw)?.state?.token ?? "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function buildExportQueryParams(
+  params?: ReimbursementListParams & {
+    categories?: string[];
+    statuses?: string[];
+    employee_ids?: string[];
+    department_ids?: string[];
+  },
+): Record<string, string | number | undefined> {
+  const p = params ?? {};
+  const queryParams: Record<string, string | number | undefined> = {
+    min_amount: p.min_amount,
+    max_amount: p.max_amount,
+    start_date: p.start_date,
+    end_date: p.end_date,
   };
-  return http
-    .get("/reimbursements/export", {
+  if (p.categories && p.categories.length > 0) {
+    queryParams.category = p.categories.join(",");
+  }
+  if (p.statuses && p.statuses.length > 0) {
+    queryParams.status = p.statuses.join(",");
+  } else if (p.status) {
+    queryParams.status = p.status;
+  }
+  const empIds = p.employee_ids;
+  if (Array.isArray(empIds) && empIds.length > 0) {
+    queryParams.employee_ids = empIds.join(",");
+  } else if (typeof empIds === "string" && empIds) {
+    queryParams.employee_ids = empIds;
+  }
+  const deptIds = p.department_ids;
+  if (Array.isArray(deptIds) && deptIds.length > 0) {
+    queryParams.department_ids = deptIds.join(",");
+  } else if (typeof deptIds === "string" && deptIds) {
+    queryParams.department_ids = deptIds;
+  }
+  return queryParams;
+}
+
+export async function exportReimbursementsExcelWithProgress(
+  params: ReimbursementListParams & {
+    categories?: string[];
+    statuses?: string[];
+    employee_ids?: string[];
+    department_ids?: string[];
+  },
+  onProgress: (event: ExportProgressEvent) => void,
+): Promise<void> {
+  const query = new URLSearchParams();
+  const queryParams = buildExportQueryParams(params);
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value !== undefined && value !== "") {
+      query.append(key, String(value));
+    }
+  }
+
+  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
+  const response = await fetch(
+    `${baseUrl}/reimbursements/export/stream?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+      },
+      credentials: "include",
+    },
+  );
+
+  if (!response.ok || !response.body) {
+    throw new Error("导出请求失败");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneEvent: ExportDoneEvent | null = null;
+  let errorMessage: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const jsonStr = line.slice(5).trim();
+      if (!jsonStr) continue;
+      try {
+        const event = JSON.parse(jsonStr) as ExportStreamEvent;
+        if (event.type === "progress") {
+          onProgress(event);
+        } else if (event.type === "done") {
+          doneEvent = event;
+        } else if (event.type === "error") {
+          errorMessage = event.message;
+        }
+      } catch {
+        // ignore malformed chunk
+      }
+    }
+  }
+
+  if (errorMessage) {
+    throw new Error(errorMessage);
+  }
+  if (!doneEvent) {
+    throw new Error("导出未完成，请重试");
+  }
+
+  const blob = await http.get<Blob>(
+    `/reimbursements/export/file/${doneEvent.token}`,
+    {
+      responseType: "blob",
+      skipErrorToast: true,
+      timeout: 120000,
+    },
+  );
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = doneEvent.filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportReimbursementsExcel(
+  params?: ReimbursementListParams & {
+    categories?: string[];
+    statuses?: string[];
+    employee_ids?: string[];
+    department_ids?: string[];
+  },
+) {
+  const queryParams = buildExportQueryParams(params);
+  try {
+    const blob = await http.get<Blob>("/reimbursements/export", {
       params: queryParams,
       responseType: "blob",
-    })
-    .then((blob: Blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `reimbursements_${Date.now()}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      skipErrorToast: true,
+      timeout: 120000,
     });
-};
+    if (blob.type.includes("application/json")) {
+      const msg = await readBlobErrorMessage(blob);
+      throw new Error(msg ?? "没有可导出的报销记录");
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reimbursements_${Date.now()}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    const ax = error as { response?: { data?: unknown } };
+    if (ax.response?.data) {
+      const msg = await readBlobErrorMessage(ax.response.data);
+      if (msg) throw new Error(msg);
+    }
+    throw error;
+  }
+}
