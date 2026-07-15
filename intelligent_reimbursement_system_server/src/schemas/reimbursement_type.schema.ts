@@ -1,5 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
+
+/** 下拉选项；写入侧统一为 { label, value } */
+export class FieldOption {
+  label: string;
+  value: string;
+}
 
 @Schema({ _id: false })
 export class FieldConfig {
@@ -15,8 +21,11 @@ export class FieldConfig {
   @Prop({ default: false })
   required: boolean;
 
-  @Prop({ type: [String], default: [] })
-  options: string[];
+  /**
+   * Mixed：兼容历史 string[]；create/update 时归一化为 { label, value }[]。
+   */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] })
+  options: FieldOption[];
 
   @Prop({ default: 0 })
   sort: number;
@@ -78,6 +87,10 @@ export class ReimbursementType extends Document {
 
   @Prop()
   remark: string;
+
+  /** 类型业务描述，供 AI 发票识别时区分相近类型 */
+  @Prop()
+  description: string;
 }
 
 export const ReimbursementTypeSchema =

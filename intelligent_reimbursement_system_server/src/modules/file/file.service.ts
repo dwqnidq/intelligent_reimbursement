@@ -5,6 +5,7 @@ import { Model } from 'mongoose';
 import * as qiniu from 'qiniu';
 import * as path from 'path';
 import { File } from '../../schemas/file.schema';
+import { decodeUploadedFilename } from '../../common/filename.util';
 
 @Injectable()
 export class FileService {
@@ -44,7 +45,7 @@ export class FileService {
 
     return this.uploadBuffer({
       buffer: file.buffer,
-      originalname: file.originalname,
+      originalname: decodeUploadedFilename(file.originalname),
       mimetype: file.mimetype,
       userId,
       type,

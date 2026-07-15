@@ -11,11 +11,28 @@ import * as ExcelJS from 'exceljs';
 import { Reimbursement } from '../../schemas/reimbursement_records.schema';
 import { ReimbursementType } from '../../schemas/reimbursement_type.schema';
 import { User } from '../../schemas/user.schema';
+import { Employee } from '../../schemas/employee.schema';
+import { Department } from '../../schemas/department.schema';
 import { InvoiceInfo } from '../../schemas/invoice_info.schema';
 import { CreateReimbursementDto } from './dto/create-reimbursement.dto';
 import { ApproveReimbursementDto } from './dto/approve-reimbursement.dto';
 import { SearchReimbursementDto } from './dto/search-reimbursement.dto';
 import { ApprovalRecordService } from '../approval-record/approval-record.service';
+import {
+  processAttachmentFile,
+  calcAttachmentRowHeight,
+  ATTACHMENT_COL_WIDTH,
+  type AttachmentFileInfo,
+  type EmbeddableImage,
+} from './export-attachment.util';
+import { putExportJob } from './export-job.store';
+
+export interface ExportProgressPayload {
+  percent: number;
+  message: string;
+  current?: number;
+  total?: number;
+}
 
 interface PopulatedCategory {
   label?: string;
@@ -57,11 +74,13 @@ interface ReimbursementDoc {
 }
 
 interface FilterQuery {
-  applicant?: string;
+  applicant?: string | { $in: string[] };
   category?: string | Record<string, unknown>;
-  status?: string;
+  status?: string | Record<string, unknown>;
   amount?: { $gte?: number; $lte?: number };
   apply_date?: { $gte?: string; $lte?: string };
+  department_name?: string | Record<string, unknown>;
+  $and?: Record<string, unknown>[];
   [key: string]: unknown;
 }
 
@@ -78,6 +97,11 @@ interface ReimbursementTreeGroup {
   children: ReimbursementDoc[];
 }
 
+interface PopulatedRoleForScope {
+  name: string;
+  permissions?: { name: string }[];
+}
+
 @Injectable()
 export class ReimbursementService implements OnModuleInit {
   constructor(
@@ -87,6 +111,10 @@ export class ReimbursementService implements OnModuleInit {
     private typeModel: Model<ReimbursementType>,
     @InjectModel(User.name)
     private userModel: Model<User>,
+    @InjectModel(Employee.name)
+    private employeeModel: Model<Employee>,
+    @InjectModel(Department.name)
+    private departmentModel: Model<Department>,
     @InjectModel(InvoiceInfo.name)
     private invoiceInfoModel: Model<InvoiceInfo>,
     private approvalRecordService: ApprovalRecordService,
@@ -94,6 +122,30 @@ export class ReimbursementService implements OnModuleInit {
 
   async onModuleInit() {
     await this.invoiceInfoModel.syncIndexes();
+  }
+
+  /** 与前端 canApprove（reimbursement:approve）一致：可查看全部报销并筛选 */
+  private async resolveListScope(
+    userId: string,
+  ): Promise<{ canViewAll: boolean }> {
+    const user = await this.userModel.findById(userId).populate({
+      path: 'roles',
+      populate: { path: 'permissions', select: 'name' },
+    });
+    const roles = (user?.roles ?? []) as unknown as PopulatedRoleForScope[];
+    const canViewAll = roles.some((role) => {
+      if (role.name === 'admin') return true;
+      return (role.permissions ?? []).some(
+        (p) => p.name === 'reimbursement:approve',
+      );
+    });
+    return { canViewAll };
+  }
+
+  private toValidObjectIds(ids: string[]): Types.ObjectId[] {
+    return ids
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
   }
 
   private resolveInvoiceNumber(dto: CreateReimbursementDto): string {
@@ -337,6 +389,16 @@ export class ReimbursementService implements OnModuleInit {
     if (record.status !== 'pending') {
       throw new BadRequestException('该报销单已审批，不可重复操作');
     }
+    if (record.has_approval_flow) {
+      throw new BadRequestException(
+        '该报销单已配置审批流程，请通过「待审批」或审批流节点操作',
+      );
+    }
+
+    const { canViewAll } = await this.resolveListScope(userId);
+    if (!canViewAll) {
+      throw new ForbiddenException('无审批权限');
+    }
 
     const now = new Date();
     const approvedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -382,30 +444,25 @@ export class ReimbursementService implements OnModuleInit {
   }
 
   async getList(userId: string, query: SearchReimbursementDto) {
-    const user = await this.userModel.findById(userId).populate('roles');
-    const roles = user!.roles as unknown as { name: string }[];
-    const isAdmin = roles.some((r) => r.name === 'admin');
+    const { canViewAll } = await this.resolveListScope(userId);
 
     const page = Math.max(1, query.page || 1);
     const size = Math.max(1, query.size || 10);
     const skip = (page - 1) * size;
 
-    const filter = await this.buildFilter(userId, isAdmin, query);
+    const filter = await this.buildFilter(userId, canViewAll, query);
     if (filter === null) return { list: [], total: 0, page, size };
 
     return this.queryList(filter, page, size, skip);
   }
 
   async getTreeList(userId: string, query: SearchReimbursementDto) {
-    const user = await this.userModel.findById(userId).populate('roles');
-    console.log("user", user);
-    const roles = user!.roles as unknown as { name: string }[];
-    const isAdmin = roles.some((r) => r.name === 'admin');
+    const { canViewAll } = await this.resolveListScope(userId);
 
     const page = Math.max(1, query.page || 1);
     const size = Math.max(1, query.size || 10);
 
-    const filter = await this.buildFilter(userId, isAdmin, query);
+    const filter = await this.buildFilter(userId, canViewAll, query);
     if (filter === null) return { list: [], total: 0, page, size };
 
     const allList = await this.queryAll(filter);
@@ -454,52 +511,203 @@ export class ReimbursementService implements OnModuleInit {
     return { list, total, page, size };
   }
 
+  /** 展开部门 ID，包含所有子部门 */
+  private async expandDepartmentIdsWithDescendants(
+    selectedIds: string[],
+  ): Promise<string[]> {
+    const all = await this.departmentModel
+      .find()
+      .select('_id parent_id')
+      .lean();
+    const childrenMap = new Map<string, string[]>();
+    for (const d of all) {
+      const pid = d.parent_id ? String(d.parent_id) : '';
+      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+      childrenMap.get(pid)!.push(String(d._id));
+    }
+    const result = new Set<string>();
+    const collect = (id: string) => {
+      result.add(id);
+      for (const child of childrenMap.get(id) ?? []) collect(child);
+    };
+    for (const id of selectedIds) collect(id);
+    return Array.from(result);
+  }
+
+  private async resolveUserIdsFromEmployeeIds(
+    employeeIds: string[],
+  ): Promise<string[]> {
+    if (employeeIds.length === 0) return [];
+    const objectIds = this.toValidObjectIds(employeeIds);
+    if (objectIds.length === 0) return [];
+    const employees = await this.employeeModel
+      .find({ _id: { $in: objectIds } })
+      .select('uid name')
+      .lean();
+    const userIds = new Set<string>();
+    const namesToMatch: string[] = [];
+    for (const emp of employees) {
+      // uid 可能为空、过期或与报销 applicant 不一致，必须同时按姓名回退匹配
+      if (emp.uid) userIds.add(String(emp.uid));
+      if (emp.name?.trim()) namesToMatch.push(emp.name.trim());
+    }
+    if (namesToMatch.length > 0) {
+      const users = await this.userModel
+        .find({ real_name: { $in: namesToMatch } })
+        .select('_id')
+        .lean();
+      for (const u of users) userIds.add(String(u._id));
+    }
+    return Array.from(userIds);
+  }
+
+  private async resolveDepartmentFilter(
+    departmentIds: string[],
+  ): Promise<{ userIds: string[]; departmentNames: string[] }> {
+    const expanded = await this.expandDepartmentIdsWithDescendants(departmentIds);
+    if (expanded.length === 0) return { userIds: [], departmentNames: [] };
+    const expandedObjectIds = this.toValidObjectIds(expanded);
+    if (expandedObjectIds.length === 0) {
+      return { userIds: [], departmentNames: [] };
+    }
+
+    const [employees, departments] = await Promise.all([
+      this.employeeModel
+        .find({ dept_id: { $in: expanded } })
+        .select('uid')
+        .lean(),
+      this.departmentModel
+        .find({ _id: { $in: expandedObjectIds } })
+        .select('name')
+        .lean(),
+    ]);
+
+    const userIds = new Set<string>();
+    for (const emp of employees) {
+      if (emp.uid) userIds.add(String(emp.uid));
+    }
+
+    const departmentNames = departments.map((d) => d.name).filter(Boolean);
+    if (departmentNames.length > 0) {
+      const users = await this.userModel
+        .find({ department: { $in: departmentNames } })
+        .select('_id')
+        .lean();
+      for (const u of users) userIds.add(String(u._id));
+    }
+
+    return { userIds: Array.from(userIds), departmentNames };
+  }
+
+  private async resolveApplicantConstraint(
+    query: SearchReimbursementDto,
+  ): Promise<Record<string, unknown> | null> {
+    const employeeIds = (query.employee_ids ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const departmentIds = (query.department_ids ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (employeeIds.length === 0 && departmentIds.length === 0) {
+      return null;
+    }
+
+    const constraints: Record<string, unknown>[] = [];
+
+    if (employeeIds.length > 0) {
+      const userIds = await this.resolveUserIdsFromEmployeeIds(employeeIds);
+      if (userIds.length === 0) return { applicant: { $in: [] } };
+      constraints.push({ applicant: { $in: userIds } });
+    }
+
+    if (departmentIds.length > 0) {
+      const { userIds, departmentNames } =
+        await this.resolveDepartmentFilter(departmentIds);
+      const orClause: Record<string, unknown>[] = [];
+      if (userIds.length > 0) orClause.push({ applicant: { $in: userIds } });
+      if (departmentNames.length > 0) {
+        orClause.push({ department_name: { $in: departmentNames } });
+      }
+      if (orClause.length === 0) return { applicant: { $in: [] } };
+      constraints.push(
+        orClause.length === 1 ? orClause[0] : { $or: orClause },
+      );
+    }
+
+    if (constraints.length === 1) return constraints[0];
+    return { $and: constraints };
+  }
+
   /** 构建通用筛选条件，category 支持逗号分隔多值 */
   private async buildFilter(
     userId: string,
-    isAdmin: boolean,
+    canViewAll: boolean,
     query: SearchReimbursementDto,
   ): Promise<FilterQuery | null> {
-    const { category, status, min_amount, max_amount, start_date, end_date } =
-      query;
-    const filter: FilterQuery = !isAdmin
-      ? { applicant: userId }
-      : {};
+    const {
+      category,
+      status,
+      min_amount,
+      max_amount,
+      start_date,
+      end_date,
+    } = query;
+    const filter: FilterQuery = !canViewAll ? { applicant: userId } : {};
+
+    if (canViewAll) {
+      const applicantConstraint = await this.resolveApplicantConstraint(query);
+      if (applicantConstraint === null) {
+        // no employee/department filter
+      } else if (
+        'applicant' in applicantConstraint &&
+        Array.isArray(
+          (applicantConstraint.applicant as { $in?: string[] })?.$in,
+        ) &&
+        (applicantConstraint.applicant as { $in: string[] }).$in.length === 0
+      ) {
+        return null;
+      } else if ('$and' in applicantConstraint) {
+        filter.$and = [
+          ...(filter.$and ?? []),
+          ...(applicantConstraint.$and as Record<string, unknown>[]),
+        ];
+      } else if ('$or' in applicantConstraint) {
+        filter.$and = [...(filter.$and ?? []), applicantConstraint];
+      } else {
+        Object.assign(filter, applicantConstraint);
+      }
+    }
 
     if (category) {
-      const codes = category
+      const tokens = category
         .split(',')
         .map((c) => c.trim())
         .filter(Boolean);
-      if (codes.length === 1) {
-        const code = codes[0];
-        if (/^[0-9a-fA-F]{24}$/.test(code)) {
-          filter.category = code;
-        } else {
-          const type = await this.typeModel.findOne({ code }).select('_id');
-          if (!type) return null;
-          filter.category = String(type._id);
-        }
+      const resolved = await this.resolveTypeRefs(tokens);
+      if (resolved.length === 0) return null;
+      if (resolved.length === 1) {
+        filter.category = resolved[0].id;
       } else {
-        // 多类型：全部解析为 ID
-        const ids: string[] = [];
-        for (const code of codes) {
-          if (/^[0-9a-fA-F]{24}$/.test(code)) {
-            ids.push(code);
-          } else {
-            const type = await this.typeModel.findOne({ code }).select('_id');
-            if (type) ids.push(String(type._id));
-          }
-        }
-        if (ids.length === 0) return null;
-        filter.category = { $in: ids } as unknown as string;
+        filter.category = {
+          $in: resolved.map((t) => t.id),
+        } as unknown as string;
       }
     }
 
     if (status) {
-      filter.status = status;
+      const statuses = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length === 1) {
+        filter.status = statuses[0];
+      } else if (statuses.length > 1) {
+        filter.status = { $in: statuses };
+      }
     } else {
-      // 默认不返回已撤回的记录
       filter.status = { $ne: 'withdrawn' } as unknown as string;
     }
     if (min_amount != null || max_amount != null) {
@@ -667,27 +875,181 @@ export class ReimbursementService implements OnModuleInit {
     return sorted.length === fields.length ? sorted : fields;
   }
 
+  /** Excel 工作表名：去掉非法字符并截断到 31 */
+  private sanitizeSheetName(raw: string): string {
+    const cleaned = raw
+      .replace(/[*?:\\/[\]]/g, '_')
+      .replace(/'/g, '')
+      .trim();
+    const base = cleaned || '工作表';
+    return base.slice(0, 31);
+  }
+
+  /** 保证工作簿内 sheet 名唯一 */
+  private allocateSheetName(raw: string, used: Set<string>): string {
+    let name = this.sanitizeSheetName(raw);
+    if (!used.has(name)) {
+      used.add(name);
+      return name;
+    }
+    let index = 2;
+    while (index < 1000) {
+      const suffix = `(${index})`;
+      const truncated = name.slice(0, Math.max(1, 31 - suffix.length)) + suffix;
+      if (!used.has(truncated)) {
+        used.add(truncated);
+        return truncated;
+      }
+      index += 1;
+    }
+    const fallback = `工作表_${used.size + 1}`.slice(0, 31);
+    used.add(fallback);
+    return fallback;
+  }
+
+  private writeEmptySheetTip(sheet: ExcelJS.Worksheet, typeLabel?: string) {
+    const title = typeLabel?.trim()
+      ? `「${typeLabel.trim()}」导出说明`
+      : '导出说明';
+    const row1 = sheet.addRow([title]);
+    const row2 = sheet.addRow([
+      '当前筛选条件下没有匹配的报销记录。请检查报销类型、状态、员工、部门或日期等筛选条件。',
+    ]);
+    row1.getCell(1).font = { bold: true, size: 12 };
+    row2.getCell(1).font = { size: 11, color: { argb: 'FF64748B' } };
+    sheet.getColumn(1).width = 68;
+  }
+
+  /**
+   * 解析导出/筛选中的报销类型 token（可为 _id / code / name）
+   * 优先按 _id 命中，避免把「看起来像 ObjectId 的 code」误当主键。
+   */
+  private async resolveTypeRefs(
+    tokens: string[],
+  ): Promise<{ id: string; label: string }[]> {
+    const result: { id: string; label: string }[] = [];
+    const seen = new Set<string>();
+    for (const token of tokens) {
+      let doc:
+        | { _id: unknown; label?: string; code?: string; name?: string }
+        | null = null;
+      if (/^[0-9a-fA-F]{24}$/.test(token)) {
+        doc = await this.typeModel
+          .findById(token)
+          .select('label code name')
+          .lean();
+      }
+      if (!doc) {
+        doc = await this.typeModel
+          .findOne({ $or: [{ code: token }, { name: token }] })
+          .select('label code name')
+          .lean();
+      }
+      if (!doc) continue;
+      const id = String(doc._id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      result.push({
+        id,
+        label: (doc.label || doc.name || doc.code || id).trim() || id,
+      });
+    }
+    return result;
+  }
+
+  /** 无匹配记录时生成带说明文字的有效 xlsx（避免空工作簿损坏） */
+  private async writeEmptyExportWorkbook(
+    query: SearchReimbursementDto,
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = '智能报销系统';
+    workbook.created = new Date();
+
+    const tokens = (query.category ?? '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    const usedNames = new Set<string>();
+    const sheetLabels: string[] = [];
+    if (tokens.length > 0) {
+      const types = await this.resolveTypeRefs(tokens);
+      if (types.length > 0) {
+        for (const t of types) sheetLabels.push(t.label);
+      } else {
+        for (const token of tokens) sheetLabels.push(token);
+      }
+    } else {
+      sheetLabels.push('导出结果');
+    }
+
+    for (const label of sheetLabels) {
+      const sheet = workbook.addWorksheet(
+        this.allocateSheetName(label, usedNames),
+      );
+      this.writeEmptySheetTip(sheet, label);
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
   async exportExcel(
     userId: string,
     query: SearchReimbursementDto,
+    onProgress?: (payload: ExportProgressPayload) => void,
   ): Promise<Buffer> {
-    const user = await this.userModel.findById(userId).populate('roles');
-    const roles = user!.roles as unknown as { name: string }[];
-    const isAdmin = roles.some((r) => r.name === 'admin');
+    const report = (percent: number, message: string, current?: number, total?: number) => {
+      onProgress?.({ percent, message, current, total });
+    };
+    const { canViewAll } = await this.resolveListScope(userId);
 
-    const filter = await this.buildFilter(userId, isAdmin, query);
+    const filter = await this.buildFilter(userId, canViewAll, query);
     const effectiveFilter =
-      filter ?? (!isAdmin ? { applicant: userId } : {});
+      filter ?? (!canViewAll ? { applicant: userId } : {});
 
     // 只 populate 申请人，category 单独查以获取 export_fields
     const rawList = await this.reimbursementModel
       .find(effectiveFilter)
       .populate({ path: 'applicant', select: 'real_name' })
+      .populate({ path: 'attachments', select: 'url original_name mime_type' })
       .sort({ createdAt: -1 })
       .lean();
 
-    // 收集所有涉及的 category id，批量查报销类型
-    const categoryIds = [...new Set(rawList.map((r) => String(r.category)))];
+    report(5, '正在查询报销记录...');
+
+    const selectedTokens = (query.category ?? '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const selectedTypes = selectedTokens.length
+      ? await this.resolveTypeRefs(selectedTokens)
+      : [];
+
+    if (rawList.length === 0 && selectedTypes.length === 0) {
+      report(100, '没有可导出的报销记录');
+      return this.writeEmptyExportWorkbook(query);
+    }
+
+    const totalAttachmentTasks = rawList.reduce((sum, item) => {
+      const files =
+        (item.attachments as unknown as AttachmentFileInfo[] | undefined) ?? [];
+      return sum + files.length;
+    }, 0);
+    const progressAttachmentTotal = Math.max(
+      totalAttachmentTasks,
+      rawList.length,
+      1,
+    );
+    let processedAttachmentTasks = 0;
+
+    // 收集所有涉及的 category id（含所选但无数据的类型），批量查报销类型
+    const categoryIds = [
+      ...new Set([
+        ...rawList.map((r) => String(r.category)),
+        ...selectedTypes.map((t) => t.id),
+      ]),
+    ];
     const typeList = await this.typeModel
       .find({ _id: { $in: categoryIds } })
       .select('label fields export_fields formula')
@@ -726,6 +1088,17 @@ export class ReimbursementService implements OnModuleInit {
         formula: t.formula ?? '',
       });
     }
+    // 所选类型可能暂无记录，用解析出的 label 补齐
+    for (const selected of selectedTypes) {
+      if (!typeMap.has(selected.id)) {
+        typeMap.set(selected.id, {
+          label: selected.label,
+          fields: [],
+          export_fields: [],
+          formula: '',
+        });
+      }
+    }
 
     // 按报销类型分组
     const groups = new Map<
@@ -744,6 +1117,39 @@ export class ReimbursementService implements OnModuleInit {
         groups.set(catId, { typeInfo, rows: [] });
       }
       groups.get(catId)!.rows.push(item);
+    }
+
+    // 有明确勾选类型时：按勾选顺序导出；无数据的类型单独空表，不影响有数据的类型
+    // 有数据的类型排在前面，避免 Excel 默认打开第一个空说明页造成误解
+    const exportEntriesRaw: {
+      catId: string;
+      typeInfo: TypeInfo;
+      rows: typeof rawList;
+    }[] =
+      selectedTypes.length > 0
+        ? selectedTypes.map((t) => ({
+            catId: t.id,
+            typeInfo: typeMap.get(t.id) ?? {
+              label: t.label,
+              fields: [],
+              export_fields: [],
+              formula: '',
+            },
+            rows: groups.get(t.id)?.rows ?? [],
+          }))
+        : [...groups.entries()].map(([catId, group]) => ({
+            catId,
+            typeInfo: group.typeInfo,
+            rows: group.rows,
+          }));
+    const exportEntries = [
+      ...exportEntriesRaw.filter((e) => e.rows.length > 0),
+      ...exportEntriesRaw.filter((e) => e.rows.length === 0),
+    ];
+
+    if (exportEntries.length === 0) {
+      report(100, '没有可导出的报销记录');
+      return this.writeEmptyExportWorkbook(query);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -775,31 +1181,40 @@ export class ReimbursementService implements OnModuleInit {
     };
 
     const summaryData: { label: string; total: number }[] = [];
+    const usedSheetNames = new Set<string>();
 
-    for (const [, group] of groups) {
-      const { typeInfo, rows } = group;
+    for (const entry of exportEntries) {
+      const { typeInfo, rows } = entry;
+      const sheetName = this.allocateSheetName(typeInfo.label, usedSheetNames);
+      const sheet = workbook.addWorksheet(sheetName);
+
+      if (rows.length === 0) {
+        this.writeEmptySheetTip(sheet, typeInfo.label);
+        summaryData.push({ label: typeInfo.label, total: 0 });
+        continue;
+      }
 
       // 对 export_fields 做拓扑排序，保证被依赖的字段先计算
       const exportFields = this.topoSort(typeInfo.export_fields);
 
-      const sheet = workbook.addWorksheet(typeInfo.label.slice(0, 31));
-
-      // 列定义：序号 + 申请人 + 动态列 + 总价
-
+      // 列定义：序号 + 申请人 + 部门 + 动态列 + 总价 + 附件
       sheet.columns = [
         { header: '序号', key: '_index', width: 8 },
         { header: '申请人', key: '_applicant', width: 14 },
+        { header: '部门', key: '_department', width: 16 },
         ...exportFields.map((f) => ({
           header: f.label,
           key: f.key,
           width: 16,
         })),
         { header: '总价', key: '_total', width: 14 },
+        { header: '附件', key: '_attachments', width: ATTACHMENT_COL_WIDTH },
       ];
 
       // 表头样式（黄底加粗），总价列表头也标红
       const headerRow = sheet.getRow(1);
-      const totalColIndex = exportFields.length + 3; // 序号(1) + 申请人(2) + 动态列 + 总价
+      const totalColIndex = exportFields.length + 4;
+      const attachmentColIndex = exportFields.length + 5;
       headerRow.eachCell((cell, colNumber) => {
         cell.fill = headerFill;
         cell.font = colNumber === totalColIndex ? redBoldFont : headerFont;
@@ -816,6 +1231,21 @@ export class ReimbursementService implements OnModuleInit {
         const applicantName =
           (item.applicant as unknown as { real_name?: string })?.real_name ??
           '';
+        const departmentName = (item.department_name as string) ?? '';
+        const attachmentFiles = (
+          (item.attachments as unknown as AttachmentFileInfo[]) ?? []
+        ).filter((f) => Boolean(f?.url));
+        const attachmentUrls = attachmentFiles.map((f) => f.url);
+
+        report(
+          10 +
+            Math.floor(
+              (processedAttachmentTasks / progressAttachmentTotal) * 75,
+            ),
+          `正在处理第 ${idx + 1}/${rows.length} 条记录的附件...`,
+          processedAttachmentTasks,
+          progressAttachmentTotal,
+        );
 
         // 计算总价：从报销类型的 fields 中筛出 is_calculate=true，用 typeInfo.formula 计算
         let rowTotal = 0;
@@ -849,7 +1279,9 @@ export class ReimbursementService implements OnModuleInit {
         const rowData: Record<string, unknown> = {
           _index: idx + 1,
           _applicant: applicantName,
+          _department: departmentName,
           _total: rowTotal,
+          _attachments: attachmentUrls.join('\n'),
         };
 
         // 过滤出有 formula 和 calc_fields 的导出字段（这些字段有 value 缓存）
@@ -906,15 +1338,96 @@ export class ReimbursementService implements OnModuleInit {
         }
 
         const dataRow = sheet.addRow(rowData);
+
+        const rowImages: EmbeddableImage[] = [];
+        const rowHyperlinks: { url: string; label: string }[] = [];
+
+        if (attachmentFiles.length === 0) {
+          processedAttachmentTasks += 1;
+        } else {
+          for (const [fileIndex, file] of attachmentFiles.entries()) {
+            const result = await processAttachmentFile(file);
+            rowImages.push(...result.images);
+            rowHyperlinks.push(...result.hyperlinks);
+            processedAttachmentTasks += 1;
+            report(
+              10 +
+                Math.floor(
+                  (processedAttachmentTasks / progressAttachmentTotal) *
+                    75,
+                ),
+              `正在下载附件 ${processedAttachmentTasks}/${progressAttachmentTotal}...`,
+              processedAttachmentTasks,
+              progressAttachmentTotal,
+            );
+            if (fileIndex < attachmentFiles.length - 1) {
+              await new Promise((resolve) => setImmediate(resolve));
+            }
+          }
+        }
+
         dataRow.eachCell((cell, colNumber) => {
-          cell.alignment = centerAlign;
+          cell.alignment =
+            colNumber === attachmentColIndex
+              ? { vertical: 'middle', wrapText: true }
+              : centerAlign;
           cell.border = thinBorder;
-          // 总价列数据标红
           if (colNumber === totalColIndex) {
             cell.font = redBoldFont;
           }
         });
-        dataRow.height = 20;
+
+        if (rowHyperlinks.length > 0) {
+          const attachmentCell = dataRow.getCell(attachmentColIndex);
+          if (rowHyperlinks.length === 1) {
+            attachmentCell.value = {
+              text: rowHyperlinks[0].label || '查看附件',
+              hyperlink: rowHyperlinks[0].url,
+            };
+          } else {
+            attachmentCell.value = {
+              text: `查看附件(${rowHyperlinks.length})`,
+              hyperlink: rowHyperlinks[0].url,
+            };
+          }
+          attachmentCell.font = { color: { argb: 'FF0563C1' }, underline: true };
+        } else if (rowImages.length > 0) {
+          dataRow.getCell(attachmentColIndex).value = '';
+        } else if (attachmentUrls.length > 0) {
+          const attachmentCell = dataRow.getCell(attachmentColIndex);
+          attachmentCell.value = {
+            text: attachmentUrls.length === 1 ? '查看附件' : `查看附件(${attachmentUrls.length})`,
+            hyperlink: attachmentUrls[0],
+          };
+          attachmentCell.font = { color: { argb: 'FF0563C1' }, underline: true };
+        }
+
+        const colIndex0 = attachmentColIndex - 1;
+        const rowIndex0 = dataRow.number - 1;
+        const imageSlotCount = Math.max(rowImages.length, 1);
+
+        for (const [imageIndex, image] of rowImages.entries()) {
+          const imageId = workbook.addImage({
+            base64: image.buffer.toString('base64'),
+            extension: image.extension,
+          });
+          const slotTop = rowIndex0 + imageIndex / imageSlotCount;
+          const slotBottom = rowIndex0 + (imageIndex + 1) / imageSlotCount;
+          sheet.addImage(imageId, {
+            tl: { col: colIndex0, row: slotTop },
+            br: { col: colIndex0 + 1, row: slotBottom },
+            editAs: 'twoCell',
+            hyperlinks: {
+              hyperlink: image.sourceUrl,
+              tooltip: image.tooltip ?? image.sourceUrl,
+            },
+          } as never);
+        }
+
+        dataRow.height = calcAttachmentRowHeight(
+          rowImages.length,
+          rowHyperlinks.length > 0,
+        );
       }
 
       // 合计行
@@ -929,9 +1442,11 @@ export class ReimbursementService implements OnModuleInit {
       summaryData.push({ label: typeInfo.label, total: categoryTotal });
     }
 
-    // 多类型时追加汇总 sheet
-    if (groups.size > 1) {
-      const summarySheet = workbook.addWorksheet('汇总');
+    // 多类型时追加汇总 sheet（仅统计有数据或用户显式选择的类型）
+    if (exportEntries.length > 1) {
+      const summarySheet = workbook.addWorksheet(
+        this.allocateSheetName('汇总', usedSheetNames),
+      );
       summarySheet.columns = [
         { header: '报销类型', key: 'label', width: 20 },
         { header: '合计金额', key: 'total', width: 16 },
@@ -965,7 +1480,20 @@ export class ReimbursementService implements OnModuleInit {
       });
     }
 
+    report(90, '正在生成 Excel 文件...');
     const buffer = await workbook.xlsx.writeBuffer();
+    report(100, '导出完成');
     return Buffer.from(buffer);
+  }
+
+  async exportExcelWithJob(
+    userId: string,
+    query: SearchReimbursementDto,
+    onProgress: (payload: ExportProgressPayload) => void,
+  ): Promise<{ token: string; filename: string }> {
+    const buffer = await this.exportExcel(userId, query, onProgress);
+    const filename = `reimbursements_${Date.now()}.xlsx`;
+    const token = putExportJob(buffer, filename);
+    return { token, filename };
   }
 }

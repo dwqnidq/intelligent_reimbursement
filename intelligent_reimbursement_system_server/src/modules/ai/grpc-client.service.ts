@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { Observable } from 'rxjs';
 
@@ -30,14 +31,34 @@ export interface GraphStreamChunk {
 export class GrpcClientService implements OnModuleInit {
   private readonly logger = new Logger(GrpcClientService.name);
   private client: any;
+  private initError?: string;
+
+  private resolveProtoPath(): string {
+    const candidates = [
+      join(process.cwd(), 'proto/graph_service.proto'),
+      join(__dirname, '../../../../proto/graph_service.proto'),
+      join(__dirname, '../../../proto/graph_service.proto'),
+      join(__dirname, '../../../graph_service.proto'),
+    ];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
+    }
+    throw new Error(
+      `找不到 graph_service.proto，已尝试：${candidates.join(' | ')}`,
+    );
+  }
+
+  private ensureClient(): void {
+    if (this.client) return;
+    const detail = this.initError ?? 'gRPC 客户端未初始化';
+    throw new Error(
+      `${detail}。请确认 proto 文件存在，且 LangGraph AI 服务（gRPC :50051）已启动。`,
+    );
+  }
 
   async onModuleInit() {
     try {
-      const PROTO_PATH = join(
-        __dirname,
-        '../../..',
-        'proto/graph_service.proto',
-      );
+      const PROTO_PATH = this.resolveProtoPath();
 
       const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
         keepCase: true,
@@ -62,13 +83,18 @@ export class GrpcClientService implements OnModuleInit {
         },
       );
 
-      this.logger.log(`gRPC客户端已连接: ${grpcHost}:${grpcPort}`);
+      this.logger.log(
+        `gRPC客户端已连接: ${grpcHost}:${grpcPort}（proto=${PROTO_PATH}）`,
+      );
     } catch (error) {
+      this.initError =
+        error instanceof Error ? error.message : 'gRPC 客户端初始化失败';
       this.logger.error('gRPC客户端初始化失败', error);
     }
   }
 
   async executeGraph(request: GraphRequest): Promise<GraphResponse> {
+    this.ensureClient();
     return new Promise((resolve, reject) => {
       this.client.ExecuteGraph(
         request,
@@ -85,6 +111,7 @@ export class GrpcClientService implements OnModuleInit {
   }
 
   streamExecuteGraph(request: GraphRequest): Observable<GraphStreamChunk> {
+    this.ensureClient();
     return new Observable((subscriber) => {
       const call = this.client.StreamExecuteGraph(request);
 

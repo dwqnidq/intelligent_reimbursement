@@ -24,6 +24,14 @@ import { UpdatePaymentAccountDto } from './dto/update-payment-account.dto';
 import { UpdateProfileSetupDto } from './dto/update-profile-setup.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CompanyService } from '../company/company.service';
+import {
+  buildPhoneLoginCandidates,
+  isPhoneLike,
+  normalizePhone,
+} from '../../common/phone.util';
+import {
+  shouldBackfillDepartmentManager,
+} from './feishu-department-manager.util';
 
 interface PopulatedPermission {
   _id: string;
@@ -96,8 +104,10 @@ export class UserService {
     if (exists) throw new ConflictException('用户名或邮箱已存在');
 
     const defaultRoleId = await this.getDefaultEmployeeRoleId();
+    const normalizedPhone = normalizePhone(dto.phone);
     const user = await this.userModel.create({
       ...dto,
+      phone: normalizedPhone,
       roles: [defaultRoleId],
       auth_provider: 'local',
       password_login_enabled: true,
@@ -112,7 +122,7 @@ export class UserService {
         employee_no: employeeNo,
         name: dto.real_name || dto.username,
         gender: 0,
-        phone: dto.phone || '',
+        phone: normalizedPhone,
         status: 1,
         uid: String(user._id),
       });
@@ -140,21 +150,8 @@ export class UserService {
   async login(dto: LoginDto) {
     const identifier = (dto.username ?? '').trim();
     const emailCandidate = identifier.toLowerCase();
-    const digitsOnly = identifier.replace(/\s|-/g, '');
-    const isPhoneLike =
-      /^\+?\d{6,20}$/.test(digitsOnly) || /^\d{11}$/.test(digitsOnly);
-    const phoneCandidates = isPhoneLike
-      ? Array.from(
-          new Set([
-            identifier,
-            digitsOnly,
-            digitsOnly.replace(/^\+/, ''),
-            digitsOnly.replace(/^\+86/, ''),
-            digitsOnly.startsWith('+') ? digitsOnly : `+${digitsOnly}`,
-            digitsOnly.startsWith('86') ? `+${digitsOnly}` : `+86${digitsOnly}`,
-            digitsOnly.startsWith('86') ? digitsOnly : `86${digitsOnly}`,
-          ]),
-        ).filter(Boolean)
+    const phoneCandidates = isPhoneLike(identifier)
+      ? buildPhoneLoginCandidates(identifier)
       : [];
 
     const user = await this.userModel
@@ -350,14 +347,58 @@ export class UserService {
     return data.code === 0 ? data.tenant_access_token ?? null : null;
   }
 
-  private async resolveManagerIdFromFeishuLeader(
-    leaderOpenId?: string,
+  private async findEmployeeIdByFeishuOpenId(
+    openId: string,
   ): Promise<string | undefined> {
-    if (!leaderOpenId) return undefined;
-    const feishuUser = await this.feishuUserModel.findOne({ open_id: leaderOpenId });
+    const feishuUser = await this.feishuUserModel.findOne({ open_id: openId });
     if (!feishuUser?.uid) return undefined;
     const employee = await this.employeeModel.findOne({ uid: feishuUser.uid });
     return employee ? String(employee._id) : undefined;
+  }
+
+  /**
+   * 按飞书部门 leader open_id 解析本地员工 id。
+   * 负责人尚未在本系统登录（无 feishu 映射/员工档案）时返回 undefined，
+   * manager_id 留空，等其自行登录后再补写。
+   */
+  private async resolveManagerIdFromFeishuLeader(
+    leaderOpenId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!leaderOpenId) return undefined;
+    return this.findEmployeeIdByFeishuOpenId(leaderOpenId);
+  }
+
+  /**
+   * 当前登录用户建好员工档案后：若其 open_id 恰好是该部门飞书负责人，则补写 manager_id。
+   */
+  private async backfillManagerIfLoginUserIsLeader(params: {
+    deptId: string;
+    openId: string;
+    openDepartmentId: string;
+    tenantToken: string;
+  }): Promise<void> {
+    const { deptId, openId, openDepartmentId, tenantToken } = params;
+    const info = await this.fetchFeishuDepartmentInfo(
+      openDepartmentId,
+      tenantToken,
+    );
+    if (!info?.leaderOpenId || info.leaderOpenId !== openId) return;
+
+    const employeeId = await this.findEmployeeIdByFeishuOpenId(openId);
+    if (!employeeId) return;
+
+    const department = await this.deptModel.findById(deptId);
+    if (!department) return;
+    if (
+      !shouldBackfillDepartmentManager({
+        existingManagerId: department.manager_id,
+        resolvedManagerEmployeeId: employeeId,
+      })
+    ) {
+      return;
+    }
+    department.manager_id = employeeId;
+    await department.save();
   }
 
   private async fetchFeishuDepartmentInfo(
@@ -424,8 +465,11 @@ export class UserService {
     }
 
     let department = await this.deptModel.findOne({ name: info.name });
+    const managerId = await this.resolveManagerIdFromFeishuLeader(
+      info.leaderOpenId,
+    );
+
     if (!department) {
-      const managerId = await this.resolveManagerIdFromFeishuLeader(info.leaderOpenId);
       const deptCount = await this.deptModel.countDocuments();
       department = await this.deptModel.create({
         name: info.name,
@@ -435,6 +479,14 @@ export class UserService {
         status: 1,
         sort: info.sort,
       });
+    } else if (
+      shouldBackfillDepartmentManager({
+        existingManagerId: department.manager_id,
+        resolvedManagerEmployeeId: managerId,
+      })
+    ) {
+      department.manager_id = managerId as string;
+      await department.save();
     }
 
     return String(department._id);
@@ -465,14 +517,17 @@ export class UserService {
     avatar_url: string;
   }): Promise<void> {
     const { userId, openId, name, mobile, avatar_url } = params;
+    const normalizedMobile = normalizePhone(mobile);
     const displayName = name || '飞书用户';
 
     let deptId: string | undefined;
     let deptName: string | undefined;
+    let openDepartmentId: string | undefined;
+    let tenantToken: string | null = null;
     try {
-      const tenantToken = await this.getFeishuTenantToken();
+      tenantToken = await this.getFeishuTenantToken();
       if (tenantToken) {
-        const openDepartmentId = await this.fetchFeishuUserPrimaryDepartmentOpenId(
+        openDepartmentId = await this.fetchFeishuUserPrimaryDepartmentOpenId(
           openId,
           tenantToken,
         );
@@ -498,11 +553,11 @@ export class UserService {
       $or: [{ uid: userId }, { name: displayName }],
     });
 
-    const hasDept = !!existingDept;
     const hasEmployee = !!existingEmp;
 
-    if (deptName && hasDept && hasEmployee) {
-      return;
+    if (hasEmployee && existingEmp && normalizedMobile && existingEmp.phone !== normalizedMobile) {
+      existingEmp.phone = normalizedMobile;
+      await existingEmp.save();
     }
 
     deptId = existingDept ? String(existingDept._id) : deptId;
@@ -514,12 +569,25 @@ export class UserService {
         employee_no: employeeNo,
         name: displayName,
         gender: 0,
-        phone: mobile || '',
+        phone: normalizedMobile,
         avatar: avatar_url || '',
         status: 1,
         uid: userId,
         ...(deptId ? { dept_id: deptId } : {}),
       });
+    }
+
+    if (deptId && tenantToken && openDepartmentId) {
+      try {
+        await this.backfillManagerIfLoginUserIsLeader({
+          deptId,
+          openId,
+          openDepartmentId,
+          tenantToken,
+        });
+      } catch (err) {
+        console.error('补写部门负责人失败:', err);
+      }
     }
   }
 
@@ -529,8 +597,12 @@ export class UserService {
     email?: string;
     mobile?: string;
     avatar_url?: string;
+    /** 为 false 时只建用户与飞书映射，不同步部门 */
+    syncDepartment?: boolean;
   }): Promise<User> {
-    const { openId, name, email, mobile, avatar_url } = params;
+    const { openId, name, email, mobile, avatar_url, syncDepartment = true } =
+      params;
+    const normalizedMobile = normalizePhone(mobile);
     const feishuUser = await this.feishuUserModel.findOne({ open_id: openId });
     let user = feishuUser?.uid
       ? await this.userModel.findById(feishuUser.uid)
@@ -551,12 +623,15 @@ export class UserService {
         password: generatedPassword,
         email: normalizedEmail,
         real_name: name || '飞书用户',
-        phone: mobile || '',
+        phone: normalizedMobile,
         avatar: avatar_url || '',
         roles: [defaultRoleId],
         auth_provider: 'feishu',
         password_login_enabled: false,
       });
+    } else if (normalizedMobile && user.phone !== normalizedMobile) {
+      user.phone = normalizedMobile;
+      await user.save();
     }
 
     await this.feishuUserModel.findOneAndUpdate(
@@ -565,23 +640,25 @@ export class UserService {
         open_id: openId,
         name: name || user.real_name,
         email: normalizedEmail,
-        mobile,
+        mobile: normalizedMobile,
         avatar_url,
         uid: String(user._id),
       },
       { upsert: true, returnDocument: 'after' },
     );
 
-    try {
-      await this.syncFeishuDepartmentAndEmployee({
-        userId: String(user._id),
-        openId,
-        name: name || user.real_name,
-        mobile: mobile || '',
-        avatar_url: avatar_url || '',
-      });
-    } catch (err) {
-      console.error('飞书部门/员工同步失败:', err);
+    if (syncDepartment) {
+      try {
+        await this.syncFeishuDepartmentAndEmployee({
+          userId: String(user._id),
+          openId,
+          name: name || user.real_name,
+          mobile: normalizedMobile,
+          avatar_url: avatar_url || '',
+        });
+      } catch (err) {
+        console.error('飞书部门/员工同步失败:', err);
+      }
     }
 
     return user;
@@ -638,6 +715,7 @@ export class UserService {
     if (userInfo.code !== 0)
       throw new UnauthorizedException('获取飞书用户信息失败');
     const { open_id, union_id, name, email, mobile, avatar_url } = userInfo.data;
+    const normalizedMobile = normalizePhone(mobile);
     const defaultRoleId = await this.getDefaultEmployeeRoleId();
     const normalizedEmail = email?.trim().toLowerCase() || `${open_id}@feishu.local`;
 
@@ -657,12 +735,15 @@ export class UserService {
         password: generatedPassword,
         email: normalizedEmail,
         real_name: name || '飞书用户',
-        phone: mobile || '',
+        phone: normalizedMobile,
         avatar: avatar_url || '',
         roles: [defaultRoleId],
         auth_provider: 'feishu',
         password_login_enabled: false,
       });
+    } else if (normalizedMobile && user.phone !== normalizedMobile) {
+      user.phone = normalizedMobile;
+      await user.save();
     }
 
     // 5. 维护飞书映射记录（仅身份映射与资料快照）
@@ -673,7 +754,7 @@ export class UserService {
         union_id: union_id,
         name,
         email: normalizedEmail,
-        mobile,
+        mobile: normalizedMobile,
         avatar_url,
         uid: String(user._id),
       },
@@ -686,7 +767,7 @@ export class UserService {
         userId: String(user._id),
         openId: open_id,
         name: name || user.real_name,
-        mobile,
+        mobile: normalizedMobile,
         avatar_url,
       });
     } catch (err) {
@@ -756,15 +837,7 @@ export class UserService {
       throw new ForbiddenException('账号已被禁用');
     }
 
-    return {
-      token: this.signAccessToken({
-        id: String(user._id),
-        username: user.username,
-      }),
-      refreshToken: this.signRefreshToken({
-        id: String(user._id),
-        username: user.username,
-      }),
-    };
+    // 刷新时重算权限与菜单，避免角色变更后 localStorage 旧会话长期不生效
+    return this.getSessionByToken(String(user._id));
   }
 }

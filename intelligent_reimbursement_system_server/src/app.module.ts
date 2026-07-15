@@ -19,6 +19,8 @@ import { PermissionModule } from './modules/permission/permission.module';
 import { MenuModule } from './modules/menu/menu.module';
 import { CompanyModule } from './modules/company/company.module';
 import { FeishuBotModule } from './modules/feishu-bot/feishu-bot.module';
+import { ReimbursementFormSettingsModule } from './modules/reimbursement-form-settings/reimbursement-form-settings.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { FeishuBotModule } from './modules/feishu-bot/feishu-bot.module';
     MenuModule,
     CompanyModule,
     FeishuBotModule,
+    ReimbursementFormSettingsModule,
+    NotificationModule,
   ],
 })
 export class AppModule {}

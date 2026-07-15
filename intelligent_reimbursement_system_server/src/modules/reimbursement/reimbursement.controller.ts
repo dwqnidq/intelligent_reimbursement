@@ -9,6 +9,8 @@ import {
   UseGuards,
   Res,
   ParseArrayPipe,
+  UseInterceptors,
+  NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
@@ -18,6 +20,8 @@ import { ApproveReimbursementDto } from './dto/approve-reimbursement.dto';
 import { SearchReimbursementDto } from './dto/search-reimbursement.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { NoWrapResponseInterceptor } from '../../common/no-wrap.interceptor';
+import { takeExportJob } from './export-job.store';
 
 @ApiTags('Reimbursements')
 @ApiBearerAuth()
@@ -41,6 +45,60 @@ export class ReimbursementController {
     );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
+  }
+
+  @ApiOperation({ summary: '导出报销单 Excel（SSE 进度推送）' })
+  @Get('export/stream')
+  @UseInterceptors(NoWrapResponseInterceptor)
+  async exportExcelStream(
+    @CurrentUser('id') userId: string,
+    @Query() query: SearchReimbursementDto,
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const writeEvent = (payload: Record<string, unknown>) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+      const result = await this.service.exportExcelWithJob(
+        userId,
+        query,
+        (progress) => {
+          writeEvent({ type: 'progress', ...progress });
+        },
+      );
+      writeEvent({ type: 'done', token: result.token, filename: result.filename });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '导出失败，请稍后重试';
+      writeEvent({ type: 'error', message });
+    } finally {
+      res.end();
+    }
+  }
+
+  @ApiOperation({ summary: '下载已完成的导出文件（一次性 token）' })
+  @Get('export/file/:token')
+  @UseInterceptors(NoWrapResponseInterceptor)
+  downloadExportFile(@Param('token') token: string, @Res() res: Response) {
+    const job = takeExportJob(token);
+    if (!job) {
+      throw new NotFoundException('导出文件不存在或已过期');
+    }
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${job.filename}"`,
+    );
+    res.send(job.buffer);
   }
 
   @ApiOperation({

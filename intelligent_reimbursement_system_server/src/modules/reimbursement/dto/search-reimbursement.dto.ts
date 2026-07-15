@@ -10,10 +10,26 @@ export class SearchReimbursementDto {
   @IsString()
   category?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: '审核状态，支持逗号分隔多个，如 pending,approved',
+  })
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({
+    description: '员工 ID，逗号分隔多个',
+  })
+  @IsOptional()
+  @IsString()
+  employee_ids?: string;
+
+  @ApiPropertyOptional({
+    description: '部门 ID，逗号分隔多个（含所选部门及全部子部门）',
+  })
+  @IsOptional()
+  @IsString()
+  department_ids?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

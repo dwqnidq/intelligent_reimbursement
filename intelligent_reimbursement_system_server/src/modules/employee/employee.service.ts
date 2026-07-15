@@ -8,6 +8,7 @@ import { Model } from 'mongoose';
 import { Employee } from '../../schemas/employee.schema';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { normalizePhone } from '../../common/phone.util';
 
 @Injectable()
 export class EmployeeService {
@@ -40,7 +41,10 @@ export class EmployeeService {
   async create(dto: CreateEmployeeDto) {
     const exists = await this.empModel.findOne({ employee_no: dto.employee_no });
     if (exists) throw new ConflictException('工号已存在');
-    const doc = await this.empModel.create(dto);
+    const doc = await this.empModel.create({
+      ...dto,
+      phone: normalizePhone(dto.phone),
+    });
     return { id: doc._id };
   }
 
@@ -53,7 +57,11 @@ export class EmployeeService {
       if (dup) throw new ConflictException('工号已存在');
     }
 
-    Object.assign(record, dto);
+    const payload = {
+      ...dto,
+      ...(dto.phone !== undefined ? { phone: normalizePhone(dto.phone) } : {}),
+    };
+    Object.assign(record, payload);
     await record.save();
     return { id: record._id };
   }

@@ -39,6 +39,11 @@ export class CreateReimbursementTypeDto {
   @IsString()
   remark?: string;
 
+  @ApiPropertyOptional({ description: '类型业务描述，供 AI 发票识别匹配' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()

@@ -11,6 +11,7 @@ import { Department } from '../../schemas/department.schema';
 import { Employee } from '../../schemas/employee.schema';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
+import { buildDepartmentTree } from './department-tree.util';
 
 @Injectable()
 export class DepartmentService {
@@ -36,7 +37,7 @@ export class DepartmentService {
       .sort({ sort: 1, createdAt: 1 });
 
     if (query?.tree) {
-      return this.buildTree(departments);
+      return buildDepartmentTree(departments);
     }
     return departments;
   }
@@ -254,14 +255,5 @@ export class DepartmentService {
       if (await this.isDescendant(childId, targetId)) return true;
     }
     return false;
-  }
-
-  private buildTree(departments: Department[], parentId: string | null = null) {
-    return departments
-      .filter((d) => String(d.parent_id ?? null) === String(parentId ?? null))
-      .map((d) => ({
-        ...d.toObject(),
-        children: this.buildTree(departments, String(d._id)),
-      }));
   }
 }

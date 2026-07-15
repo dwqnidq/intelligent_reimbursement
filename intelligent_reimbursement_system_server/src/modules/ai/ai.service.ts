@@ -137,38 +137,40 @@ export class AiService {
                   }
                   return result as Record<string, unknown>[];
                 })();
-                const label = String(
+                const headLabel = String(
                   (flatRows[0] as { label?: string } | undefined)?.label ?? '',
-                );
+                ).trim();
                 const isSuggested = Boolean(
                   (flatRows[0] as { is_suggested_type?: boolean } | undefined)
                     ?.is_suggested_type,
                 );
-                const n = flatRows.length;
+                const rowCount = flatRows.length;
                 const fileSlots =
                   Array.isArray(result) &&
                   result.length > 0 &&
                   Array.isArray((result as unknown[])[0])
                     ? result.length
-                    : n > 0
+                    : rowCount > 0
                       ? 1
                       : 0;
                 const detailHint =
-                  n > 1
-                    ? `，${fileSlots} 个文件共 ${n} 条明细`
-                    : n === 1
+                  rowCount > 1
+                    ? `，${fileSlots} 个文件共 ${rowCount} 条明细`
+                    : rowCount === 1
                       ? '，1 条明细'
                       : '';
+                let extractMessage: string;
+                if (rowCount === 0 || !headLabel) {
+                  extractMessage = `未识别到报销类型${detailHint}，请手动选择报销类型后提交`;
+                } else if (isSuggested) {
+                  extractMessage = `未匹配到系统报销类型，已生成建议类型「${headLabel}」${detailHint}，请手动选择类型后提交`;
+                } else {
+                  extractMessage = `已识别报销类型「${headLabel}」${detailHint}`;
+                }
                 data = {
                   type: 'reimbursement_form_extract',
                   data: result,
-                  message: isSuggested
-                    ? label
-                      ? `已根据票据生成建议报销类型「${label}」${detailHint}，请在后台创建对应类型后选择提交`
-                      : `已生成建议报销类型${detailHint}，请在后台创建对应类型后选择提交`
-                    : label
-                      ? `已识别报销类型「${label}」${detailHint}，表单已更新`
-                      : '报销单识别完成',
+                  message: extractMessage,
                 };
               } else {
                 data = { type: 'chat', message: result };

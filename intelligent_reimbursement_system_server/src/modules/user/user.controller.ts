@@ -70,6 +70,12 @@ export class UserController {
     return this.userService.getSessionByToken(userId);
   }
 
+  @ApiOperation({ summary: '拉取当前会话（权限、菜单、用户信息）' })
+  @Get('session')
+  getSession(@CurrentUser('id') userId: string) {
+    return this.userService.getSessionByToken(userId);
+  }
+
   @Public()
   @ApiOperation({ summary: '用户注册' })
   @Post()

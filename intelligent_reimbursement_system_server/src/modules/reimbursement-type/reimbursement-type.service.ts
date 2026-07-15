@@ -11,6 +11,7 @@ import { ReimbursementType } from '../../schemas/reimbursement_type.schema';
 import { User } from '../../schemas/user.schema';
 import { CreateReimbursementTypeDto } from './dto/create-reimbursement-type.dto';
 import { UpdateReimbursementTypeDto } from './dto/update-reimbursement-type.dto';
+import { normalizeTypeFieldsOptions } from '../../common/field-options.util';
 
 @Injectable()
 export class ReimbursementTypeService implements OnModuleInit {
@@ -34,7 +35,7 @@ export class ReimbursementTypeService implements OnModuleInit {
     return this.typeModel
       .find(filter)
       .select(
-        'code name label fields formula over_limit_threshold export_fields status remark',
+        'code name label fields formula over_limit_threshold export_fields status remark description',
       )
       .sort({ createdAt: 1 });
   }
@@ -86,6 +87,7 @@ export class ReimbursementTypeService implements OnModuleInit {
       code: String(item.code).trim(),
       name: String(item.name).trim(),
       label: String(item.label).trim(),
+      fields: normalizeTypeFieldsOptions(item.fields),
     }));
     const inserted = await this.typeModel.insertMany(docs);
     return {
@@ -116,7 +118,11 @@ export class ReimbursementTypeService implements OnModuleInit {
       }
     }
 
-    Object.assign(record, dto);
+    const patch = { ...dto };
+    if (dto.fields !== undefined) {
+      patch.fields = normalizeTypeFieldsOptions(dto.fields);
+    }
+    Object.assign(record, patch);
     await record.save();
     return { id: record._id };
   }
