@@ -57,18 +57,24 @@ export class FeishuApiClient {
     type: 'file' | 'image',
   ): Promise<Buffer> {
     const token = await this.getTenantAccessToken();
-    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=${type}`;
+    const encodedKey = encodeURIComponent(fileKey);
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${encodedKey}?type=${type}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
+      const body = await res.text();
+      const logId = res.headers.get('x-tt-logid') ?? '-';
+      this.logger.error(
+        `下载飞书文件失败 status=${res.status} logid=${logId} message=${messageId} key=${fileKey} type=${type} body=${body.slice(0, 300)}`,
+      );
       throw new Error(`下载飞书文件失败: ${res.status}`);
     }
     const arrayBuffer = await res.arrayBuffer();
     return Buffer.from(arrayBuffer);
   }
 
-  async sendInteractiveCard(chatId: string, card: unknown): Promise<string> {
+  async sendTextMessage(chatId: string, text: string): Promise<string> {
     const token = await this.getTenantAccessToken();
     const res = await fetch(
       'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
@@ -80,6 +86,55 @@ export class FeishuApiClient {
         },
         body: JSON.stringify({
           receive_id: chatId,
+          msg_type: 'text',
+          content: JSON.stringify({ text }),
+        }),
+      },
+    );
+    const data = (await res.json()) as {
+      code: number;
+      msg?: string;
+      data?: { message_id?: string };
+    };
+    if (data.code !== 0 || !data.data?.message_id) {
+      this.logger.error(`发送文本失败: ${JSON.stringify(data)}`);
+      throw new Error(data.msg ?? '发送飞书文本失败');
+    }
+    return data.data.message_id;
+  }
+
+  async sendInteractiveCard(chatId: string, card: unknown): Promise<string> {
+    return this.sendInteractiveCardTo(
+      chatId,
+      'chat_id',
+      card,
+    );
+  }
+
+  /** 按 open_id 私聊发送交互卡片 */
+  async sendInteractiveCardToOpenId(
+    openId: string,
+    card: unknown,
+  ): Promise<string> {
+    return this.sendInteractiveCardTo(openId, 'open_id', card);
+  }
+
+  private async sendInteractiveCardTo(
+    receiveId: string,
+    receiveIdType: 'chat_id' | 'open_id',
+    card: unknown,
+  ): Promise<string> {
+    const token = await this.getTenantAccessToken();
+    const res = await fetch(
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          receive_id: receiveId,
           msg_type: 'interactive',
           content: JSON.stringify((card as { card?: unknown }).card ?? card),
         }),
@@ -95,6 +150,28 @@ export class FeishuApiClient {
       throw new Error(data.msg ?? '发送飞书卡片失败');
     }
     return data.data.message_id;
+  }
+
+  async updateInteractiveCard(messageId: string, card: unknown): Promise<void> {
+    const token = await this.getTenantAccessToken();
+    const res = await fetch(
+      `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: JSON.stringify((card as { card?: unknown }).card ?? card),
+        }),
+      },
+    );
+    const data = (await res.json()) as { code: number; msg?: string };
+    if (data.code !== 0) {
+      this.logger.error(`更新卡片失败: ${JSON.stringify(data)}`);
+      throw new Error(data.msg ?? '更新飞书卡片失败');
+    }
   }
 
   async getUserByOpenId(openId: string): Promise<{
@@ -125,5 +202,30 @@ export class FeishuApiClient {
       mobile: user.mobile,
       avatar_url: user.avatar_url,
     };
+  }
+
+  async getMessageContent(
+    messageId: string,
+  ): Promise<Record<string, unknown>> {
+    const token = await this.getTenantAccessToken();
+    const res = await fetch(
+      `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = (await res.json()) as {
+      code: number;
+      msg?: string;
+      data?: { items?: Array<{ body?: { content?: string } }> };
+    };
+    if (data.code !== 0) {
+      throw new Error(data.msg ?? '获取飞书消息详情失败');
+    }
+    const raw = data.data?.items?.[0]?.body?.content;
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
   }
 }

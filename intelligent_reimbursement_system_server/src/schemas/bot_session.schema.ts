@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
 export type BotSessionStatus =
+  | 'awaiting_upload'
   | 'awaiting_confirm'
   | 'recognizing'
   | 'awaiting_submit'
@@ -10,7 +11,7 @@ export type BotSessionStatus =
   | 'cancelled'
   | 'expired';
 
-export type FeishuSourceFileKind = 'image' | 'pdf' | 'zip' | 'other';
+export type FeishuSourceFileKind = 'image' | 'pdf' | 'zip' | 'folder' | 'other';
 
 @Schema({ _id: false, versionKey: false })
 export class BotSourceFile {
@@ -20,11 +21,14 @@ export class BotSourceFile {
   @Prop({ required: true })
   file_name: string;
 
-  @Prop({ required: true, enum: ['image', 'pdf', 'zip', 'other'] })
+  @Prop({ required: true, enum: ['image', 'pdf', 'zip', 'folder', 'other'] })
   kind: FeishuSourceFileKind;
 
   @Prop()
   message_id?: string;
+
+  @Prop({ enum: ['file', 'image'], default: 'file' })
+  resource_type?: 'file' | 'image';
 }
 
 @Schema({ _id: false, versionKey: false })
@@ -78,7 +82,13 @@ export class BotMessageIds {
   confirm?: string;
 
   @Prop()
+  confirm_sent_at?: Date;
+
+  @Prop()
   result?: string;
+
+  @Prop()
+  profile?: string;
 
   @Prop()
   progress?: string;
@@ -95,12 +105,19 @@ export class BotSession extends Document {
   @Prop({ required: true })
   chat_id: string;
 
+  @Prop({ index: true })
+  trigger_message_id?: string;
+
+  @Prop({ type: [String], default: [], index: true })
+  trigger_message_ids: string[];
+
   @Prop({ type: String, ref: 'User' })
   user_id?: string;
 
   @Prop({
     required: true,
     enum: [
+      'awaiting_upload',
       'awaiting_confirm',
       'recognizing',
       'awaiting_submit',
@@ -109,7 +126,7 @@ export class BotSession extends Document {
       'cancelled',
       'expired',
     ],
-    default: 'awaiting_confirm',
+    default: 'awaiting_upload',
   })
   status: BotSessionStatus;
 
