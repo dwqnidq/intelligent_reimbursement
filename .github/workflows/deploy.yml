@@ -22,9 +22,12 @@ jobs:
           test -n "${{ secrets.SERVER_HOST }}" || (echo "Missing SERVER_HOST" && exit 1)
           test -n "${{ secrets.SERVER_USER }}" || (echo "Missing SERVER_USER" && exit 1)
           test -n "${{ secrets.SERVER_SSH_KEY }}" || (echo "Missing SERVER_SSH_KEY" && exit 1)
+          test -n "${{ secrets.GIT_DEPLOY_KEY }}" || (echo "Missing GIT_DEPLOY_KEY" && exit 1)
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1
+        env:
+          GIT_DEPLOY_KEY: ${{ secrets.GIT_DEPLOY_KEY }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -32,14 +35,20 @@ jobs:
           port: ${{ secrets.SERVER_PORT || '22' }}
           timeout: 60s
           command_timeout: 30m
+          envs: GIT_DEPLOY_KEY
           script: |
             set -e
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH || '/root/intelligent_reimbursement' }}"
             cd "$DEPLOY_PATH"
 
-            # 服务器到 GitHub 偶发 TLS 中断（GnuTLS -110），提高稳定性并重试
-            git config http.version HTTP/1.1
-            git config http.postBuffer 524288000
+            # 使用 Deploy key 经 SSH 拉取，避免 HTTPS/GnuTLS 偶发中断
+            install -m 700 -d "$HOME/.ssh"
+            printf '%s\n' "$GIT_DEPLOY_KEY" > "$HOME/.ssh/github_deploy"
+            chmod 600 "$HOME/.ssh/github_deploy"
+            trap 'rm -f "$HOME/.ssh/github_deploy"' EXIT
+            ssh-keyscan -t ed25519,rsa github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+            export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/github_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+            git remote set-url origin git@github.com:dwqnidq/intelligent_reimbursement.git
 
             retry() {
               n=0
