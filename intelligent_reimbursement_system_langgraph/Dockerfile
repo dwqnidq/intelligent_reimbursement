@@ -6,8 +6,11 @@ WORKDIR /app
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
 # 安装系统依赖
+# libc6-dev：提供 stdint.h 等 C 标准头文件，供 stringzilla 等原生扩展编译
+# （slim 镜像默认只有 gcc、无 libc 开发头文件）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc6-dev \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
