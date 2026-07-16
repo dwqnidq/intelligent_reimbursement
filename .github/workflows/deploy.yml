@@ -36,8 +36,29 @@ jobs:
             set -e
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH || '/root/intelligent_reimbursement' }}"
             cd "$DEPLOY_PATH"
-            git fetch --all --prune
+
+            # 服务器到 GitHub 偶发 TLS 中断（GnuTLS -110），提高稳定性并重试
+            git config http.version HTTP/1.1
+            git config http.postBuffer 524288000
+
+            retry() {
+              n=0
+              max=5
+              delay=5
+              until "$@"; do
+                n=$((n + 1))
+                if [ "$n" -ge "$max" ]; then
+                  echo "command failed after ${max} attempts: $*"
+                  return 1
+                fi
+                echo "retry ${n}/${max} in ${delay}s: $*"
+                sleep "$delay"
+                delay=$((delay * 2))
+              done
+            }
+
+            retry git fetch --all --prune
             git checkout main
-            git pull --ff-only origin main
+            retry git pull --ff-only origin main
             docker compose --env-file .env.prod up -d --build --remove-orphans
             docker image prune -f
