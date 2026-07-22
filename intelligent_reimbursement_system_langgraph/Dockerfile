@@ -17,14 +17,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 先复制依赖文件，利用 Docker 层缓存
 COPY requirements.txt pyproject.toml .
-# 使用阿里云 pip 镜像源
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
+
+# 使用阿里云 pip 镜像源。
+# paddleocr 会依赖完整版 opencv-python / opencv-contrib-python（各约数十 MB～上百 MB），
+# 在弱网部署下极易拖垮构建；改为单一 headless 变体（contrib 已含主模块），并对 paddleocr 使用 --no-deps。
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+      opencv-contrib-python-headless \
+    && grep -vE '^(paddleocr|paddlepaddle|opencv-)' requirements.txt > /tmp/requirements.base.txt \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+      -r /tmp/requirements.base.txt \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+      'paddlepaddle>=2.6.0,<3.0.0' \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+      'paddleocr>=2.9.0,<3.0.0' --no-deps \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+      shapely scikit-image imgaug pyclipper lmdb rapidfuzz cython \
+      pyyaml python-docx beautifulsoup4 'fonttools>=4.24.0' 'fire>=0.3.0' requests \
+      'albumentations==1.4.10' 'albucore==0.0.13'
 
 # 复制项目文件
 COPY . .
 
-# 安装为可编辑包（消除 sys.path hack）
-RUN pip install -e . -i https://mirrors.aliyun.com/pypi/simple/
+# 安装为可编辑包（依赖已在上一层装好，--no-deps 避免再次解析并拉取完整 OpenCV）
+RUN pip install --no-cache-dir --no-deps -e . -i https://mirrors.aliyun.com/pypi/simple/
 
 # 确保输出目录存在
 RUN mkdir -p ./src/generated

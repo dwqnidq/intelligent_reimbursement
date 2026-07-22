@@ -34,7 +34,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || '22' }}
           timeout: 60s
-          command_timeout: 30m
+          command_timeout: 90m
           envs: GIT_DEPLOY_KEY
           script: |
             set -e
