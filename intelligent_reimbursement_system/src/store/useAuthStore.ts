@@ -7,6 +7,7 @@ interface AuthState {
   refreshToken: string
   user: UserInfo | null
   permissions: string[]
+  roles: string[]
   menus: MenuItem[]
 
   setAuth: (payload: {
@@ -14,10 +15,12 @@ interface AuthState {
     refreshToken: string
     user: UserInfo
     permissions: string[]
+    roles: string[]
     menus: MenuItem[]
   }) => void
   clearAuth: () => void
   hasPermission: (permission: string) => boolean
+  hasRole: (role: string) => boolean
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -27,16 +30,26 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: '',
       user: null,
       permissions: [],
+      roles: [],
       menus: [],
 
-      setAuth: ({ token, refreshToken, user, permissions, menus }) =>
-        set({ token, refreshToken, user, permissions, menus }),
+      setAuth: ({ token, refreshToken, user, permissions, roles, menus }) =>
+        set({ token, refreshToken, user, permissions, roles, menus }),
 
       clearAuth: () =>
-        set({ token: '', refreshToken: '', user: null, permissions: [], menus: [] }),
+        set({
+          token: '',
+          refreshToken: '',
+          user: null,
+          permissions: [],
+          roles: [],
+          menus: [],
+        }),
 
       hasPermission: (permission: string) =>
         get().permissions.includes(permission),
+
+      hasRole: (role: string) => get().roles.includes(role),
     }),
     {
       name: 'auth-storage', // localStorage key
@@ -45,6 +58,7 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         user: state.user,
         permissions: state.permissions,
+        roles: state.roles,
         menus: state.menus,
       }),
     }

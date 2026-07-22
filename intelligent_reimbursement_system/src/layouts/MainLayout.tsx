@@ -35,11 +35,35 @@ import {
   markNotificationRead,
   type NotificationItem,
 } from "../api/notification";
+import {
+  buildReimbursementDetailPath,
+  getReimbursementIdFromNotification,
+} from "../utils/notificationNavigation";
+import AIAssistant from "../components/AIAssistant";
 
 const { Header, Sider, Content } = Layout;
 
+/** 仅登录后主布局内展示；无权限的普通用户不显示 */
+function AIAssistantEntry() {
+  const permissions = useAuthStore((s) => s.permissions);
+  if (!permissions || permissions.length === 0) return null;
+  return <AIAssistant />;
+}
+
 const SIDER_WIDTH = 232;
 const SIDER_COLLAPSED_WIDTH = 72;
+
+function flattenMenus(menus: MenuItem[]): MenuItem[] {
+  return menus.flatMap((m) => [m, ...flattenMenus(m.children ?? [])]);
+}
+
+function findPathByComponent(
+  menus: MenuItem[],
+  component: string,
+  fallback: string,
+): string {
+  return flattenMenus(menus).find((m) => m.component === component)?.path ?? fallback;
+}
 
 function buildMenuItems(menus: MenuItem[]): MenuProps["items"] {
   return menus
@@ -304,7 +328,21 @@ export default function MainLayout() {
                                 fetchNotifications,
                               );
                             }
-                            navigate("/pending-approval");
+                            const listPath = findPathByComponent(
+                              menus,
+                              "ReimbursementList",
+                              "/",
+                            );
+                            const reimbursementId =
+                              getReimbursementIdFromNotification(item);
+                            navigate(
+                              reimbursementId
+                                ? buildReimbursementDetailPath(
+                                    listPath,
+                                    reimbursementId,
+                                  )
+                                : listPath,
+                            );
                             setNotifOpen(false);
                           }}
                         >
@@ -366,6 +404,7 @@ export default function MainLayout() {
           <Outlet />
         </Content>
       </Layout>
+      <AIAssistantEntry />
     </Layout>
   );
 }

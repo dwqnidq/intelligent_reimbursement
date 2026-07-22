@@ -9,12 +9,12 @@ body,
   padding: 0;
 }
 
-/* ===== CSS 变量 — 飞书青绿风格 ===== */
+/* ===== CSS 变量 — 海蓝商务风格 ===== */
 :root {
-  --brand: #0f766e;
-  --brand-soft: #ccfbf1;
-  --brand-deep: #115e59;
-  --brand-mid: #0d9488;
+  --brand: #1d4ed8;
+  --brand-soft: #dbeafe;
+  --brand-deep: #1e40af;
+  --brand-mid: #2563eb;
   --ink: #0f172a;
   --muted: #64748b;
   --line: #e2e8f0;
@@ -28,11 +28,11 @@ body,
   --text-tertiary: #94a3b8;
   --border-color: #e2e8f0;
   --border-color-hover: #cbd5e1;
-  --color-primary: #0f766e;
-  --color-primary-hover: #0d9488;
-  --color-primary-bg: #f0fdfa;
-  --color-primary-bg-strong: #ecfdf5;
-  --color-primary-border: #99f6e4;
+  --color-primary: #1d4ed8;
+  --color-primary-hover: #2563eb;
+  --color-primary-bg: #eff6ff;
+  --color-primary-bg-strong: #dbeafe;
+  --color-primary-border: #bfdbfe;
   --color-success: #16a34a;
   --color-warning: #ea580c;
   --color-danger: #dc2626;
@@ -47,7 +47,7 @@ body,
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s ease;
   --page-gradient:
-    radial-gradient(1200px 600px at 10% -10%, #d1fae5 0%, transparent 55%),
+    radial-gradient(1200px 600px at 10% -10%, #dbeafe 0%, transparent 55%),
     radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%),
     linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%);
 }
@@ -62,10 +62,14 @@ body,
   --text-tertiary: #64748b;
   --border-color: #334155;
   --border-color-hover: #475569;
-  --color-primary: #2dd4bf;
-  --color-primary-hover: #5eead4;
-  --color-primary-bg: #134e4a;
-  --color-primary-border: #115e59;
+  --color-primary: #60a5fa;
+  --color-primary-hover: #93c5fd;
+  --color-primary-bg: #1e3a8a;
+  --color-primary-border: #1e40af;
+  --brand: #60a5fa;
+  --brand-soft: #1e3a8a;
+  --brand-deep: #93c5fd;
+  --brand-mid: #3b82f6;
   --color-success: #4ade80;
   --color-warning: #fb923c;
   --color-danger: #f87171;
@@ -144,7 +148,7 @@ body {
 }
 
 .app-header-trigger:hover {
-  background: rgba(15, 118, 110, 0.06) !important;
+  background: rgba(29, 78, 216, 0.06) !important;
 }
 
 /* 页面标题图标 — 渐变实心，替代浅绿底块 */
@@ -155,10 +159,10 @@ body {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background: linear-gradient(145deg, #0d9488, #0f766e);
+  background: linear-gradient(145deg, #2563eb, #1d4ed8);
   color: #fff !important;
   font-size: 14px;
-  box-shadow: 0 4px 10px rgba(15, 118, 110, 0.22);
+  box-shadow: 0 4px 10px rgba(29, 78, 216, 0.22);
 }
 
 .page-title-icon .anticon,
@@ -189,14 +193,14 @@ body {
   border-radius: 10px;
   display: grid;
   place-items: center;
-  background: linear-gradient(145deg, #0d9488, #0f766e);
+  background: linear-gradient(145deg, #2563eb, #1d4ed8);
   color: #fff;
   font-size: 18px;
-  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3);
 }
 
 .app-user-avatar {
-  background: linear-gradient(145deg, #0d9488, #0f766e) !important;
+  background: linear-gradient(145deg, #2563eb, #1d4ed8) !important;
 }
 
 /* ===== 侧边栏 ===== */
@@ -243,7 +247,7 @@ body {
   bottom: 7px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #0d9488, #0f766e);
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
 }
 .ant-menu-item-selected .ant-menu-item-icon,
 .ant-menu-item-selected .anticon {
@@ -251,7 +255,7 @@ body {
 }
 .ant-menu-item:hover:not(.ant-menu-item-selected),
 .ant-menu-submenu-title:hover {
-  background: rgba(15, 118, 110, 0.05) !important;
+  background: rgba(29, 78, 216, 0.05) !important;
   color: var(--brand-deep) !important;
 }
 .ant-menu-submenu-selected > .ant-menu-submenu-title {
@@ -344,13 +348,13 @@ body {
   height: 36px !important;
 }
 .ant-btn-primary {
-  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%) !important;
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
   border: none !important;
-  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.25) !important;
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.25) !important;
 }
 .ant-btn-primary:hover {
-  background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%) !important;
-  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.35) !important;
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35) !important;
 }
 .ant-btn-default {
   border-color: var(--border-color-hover) !important;

@@ -80,7 +80,7 @@ export class FeishuWsService implements OnApplicationBootstrap, OnModuleDestroy 
       'card.action.trigger': async (data: Record<string, unknown>) => {
         const parsed = parseCardActionBody(data);
         this.logger.log(
-          `收到卡片回调 action=${parsed.actionName ?? 'unknown'} session=${parsed.sessionId ?? '-'}`,
+          `收到卡片回调 action=${parsed.actionName ?? 'unknown'} approval=${parsed.approvalRecordId ?? '-'} session=${parsed.sessionId ?? '-'}`,
         );
 
         if (

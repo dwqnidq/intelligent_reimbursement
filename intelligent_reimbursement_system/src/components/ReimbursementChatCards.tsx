@@ -1,12 +1,16 @@
 import { Select } from "antd";
+import { useEffect, useRef, useState } from "react";
 import type { ReimbursementType } from "../api/reimbursement";
 import type {
   RecognitionInvoiceItem,
   ResultCardMode,
 } from "../utils/reimbursementRecognition";
+import { progressPercent } from "../utils/aiProgress";
 import "./ReimbursementChatCards.css";
 
 type BannerVariant = "teal" | "blue" | "amber" | "green" | "slate";
+
+const STREAM_TYPE_MS = 28;
 
 function Banner({
   variant,
@@ -27,6 +31,135 @@ function Banner({
     </div>
   );
 }
+
+function highlightStage(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(
+      /(准备识别…|OCR 识别中|OCR 完成|字段提取中|类型匹配中|发票判定中|发票判定完成|提取失败|识别完成|未读取到启用的报销类型)/g,
+      '<span class="rc-stream-stage">$1</span>',
+    );
+}
+
+function StreamLogViewport({ lines }: { lines: string[] }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [doneLines, setDoneLines] = useState<string[]>([]);
+  const [current, setCurrent] = useState("");
+  const [showCursor, setShowCursor] = useState(false);
+  const doneCountRef = useRef(0);
+
+  // 行被清空时重置
+  useEffect(() => {
+    if (lines.length === 0) {
+      doneCountRef.current = 0;
+      setDoneLines([]);
+      setCurrent("");
+      setShowCursor(false);
+    }
+  }, [lines.length]);
+
+  // 逐行打字：只依赖「已完成行数」与「目标行内容」，避免 kick/typingRef 死锁
+  const pendingIndex = doneLines.length;
+  const pendingLine = lines[pendingIndex];
+
+  useEffect(() => {
+    if (lines.length === 0) return;
+    if (pendingIndex >= lines.length) {
+      setShowCursor(false);
+      setCurrent("");
+      return;
+    }
+    if (pendingLine == null) return;
+
+    let cancelled = false;
+    let i = 0;
+    setShowCursor(true);
+    setCurrent("");
+
+    const timer = window.setInterval(() => {
+      if (cancelled) return;
+      i += 1;
+      setCurrent(pendingLine.slice(0, i));
+      if (i >= pendingLine.length) {
+        window.clearInterval(timer);
+        if (cancelled) return;
+        doneCountRef.current = pendingIndex + 1;
+        setDoneLines((prev) =>
+          prev.length === pendingIndex ? [...prev, pendingLine] : prev,
+        );
+        setCurrent("");
+        setShowCursor(false);
+      }
+    }, STREAM_TYPE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [lines.length, pendingIndex, pendingLine]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [doneLines, current]);
+
+  return (
+    <div className="rc-stream-box" ref={boxRef} aria-live="polite">
+      {doneLines.map((line, idx) => (
+        <p
+          key={`done-${idx}`}
+          className="rc-stream-line"
+          dangerouslySetInnerHTML={{ __html: highlightStage(line) }}
+        />
+      ))}
+      {current || showCursor ? (
+        <p className="rc-stream-line">
+          <span dangerouslySetInnerHTML={{ __html: highlightStage(current) }} />
+          {showCursor ? <span className="rc-stream-cursor" /> : null}
+        </p>
+      ) : null}
+      {lines.length === 0 && doneLines.length === 0 ? (
+        <p className="rc-stream-line rc-stream-line-muted">等待识别…</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function ProgressCard({
+  done,
+  total,
+  lines,
+}: {
+  done: number;
+  total: number;
+  lines?: string[];
+}) {
+  const percent = progressPercent(done, total);
+  const logLines = lines?.length
+    ? lines
+    : [`正在识别发票… ${done}/${total}`];
+  return (
+    <div className="rc-card">
+      <Banner variant="blue" tag="处理中" title="正在识别发票" />
+      <div className="rc-body">
+        <StreamLogViewport lines={logLines} />
+        <div className="rc-progress-meta">
+          <span className="rc-progress-label">识别进度 {percent}%</span>
+          <span className="rc-progress-frac">
+            {done}/{total}
+          </span>
+        </div>
+        <div className="rc-progress">
+          <i style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function StatusBadge({ item }: { item: RecognitionInvoiceItem }) {
   if (item.duplicate) {
@@ -142,35 +275,6 @@ function InvoiceRow({
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-export function ProgressCard({
-  done,
-  total,
-  hint,
-}: {
-  done: number;
-  total: number;
-  hint?: string;
-}) {
-  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="rc-card">
-      <Banner
-        variant="blue"
-        tag="处理中"
-        title="正在识别发票"
-        subtitle={hint ?? `进度 ${done}/${total}`}
-      />
-      <div className="rc-body">
-        <div className="rc-progress-label">识别进度 {percent}%</div>
-        <div className="rc-progress">
-          <i style={{ width: `${percent}%` }} />
-        </div>
-        <div className="rc-alert info">请稍候，识别完成后会展示结果。</div>
-      </div>
     </div>
   );
 }

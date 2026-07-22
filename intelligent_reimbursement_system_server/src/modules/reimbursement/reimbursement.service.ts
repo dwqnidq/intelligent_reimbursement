@@ -26,6 +26,7 @@ import {
   type EmbeddableImage,
 } from './export-attachment.util';
 import { putExportJob } from './export-job.store';
+import { canAccessReimbursementDetail } from './reimbursement-access.util';
 
 export interface ExportProgressPayload {
   percent: number;
@@ -440,6 +441,11 @@ export class ReimbursementService implements OnModuleInit {
         reject_reason: null,
       },
     });
+
+    if (record.has_approval_flow) {
+      await this.approvalRecordService.resetAndReopenAfterWithdraw(id);
+    }
+
     return { id, status: 'pending' };
   }
 
@@ -454,6 +460,57 @@ export class ReimbursementService implements OnModuleInit {
     if (filter === null) return { list: [], total: 0, page, size };
 
     return this.queryList(filter, page, size, skip);
+  }
+
+  /** 单条详情：申请人、具备全局审批权限者、或审批流中的审批人可查看 */
+  async getOne(userId: string, id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('报销单不存在');
+    }
+
+    const item = await this.reimbursementModel
+      .findById(id)
+      .select('-createdAt -updatedAt')
+      .populate(this.populateOptions);
+    if (!item) throw new NotFoundException('报销单不存在');
+
+    const { canViewAll } = await this.resolveListScope(userId);
+    const rawApplicant = item.applicant as unknown;
+    const applicantId =
+      rawApplicant &&
+      typeof rawApplicant === 'object' &&
+      '_id' in (rawApplicant as object)
+        ? String((rawApplicant as { _id: unknown })._id)
+        : rawApplicant
+          ? String(rawApplicant)
+          : null;
+
+    const emp = await this.employeeModel
+      .findOne({ uid: userId })
+      .select('_id')
+      .lean();
+    const viewerEmployeeId = emp?._id ? String(emp._id) : null;
+
+    const approval =
+      await this.approvalRecordService.findByReimbursementId(id);
+    const approverEmployeeIds =
+      approval?.flow_snapshot?.nodes?.flatMap((node) =>
+        (node.approvers ?? []).map((a) => String(a.approver_id)),
+      ) ?? [];
+
+    if (
+      !canAccessReimbursementDetail({
+        userId,
+        canViewAll,
+        applicantId,
+        viewerEmployeeId,
+        approverEmployeeIds,
+      })
+    ) {
+      throw new ForbiddenException('无权查看该报销单');
+    }
+
+    return this.formatItem(item);
   }
 
   async getTreeList(userId: string, query: SearchReimbursementDto) {

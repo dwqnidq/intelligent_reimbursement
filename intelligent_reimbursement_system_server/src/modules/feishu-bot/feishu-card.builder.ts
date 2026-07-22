@@ -1051,7 +1051,8 @@ export type ApprovalPendingCardInput = ApprovalReimbursementCardSummary & {
 export type ApprovalCardResolve =
   | { kind: 'approved'; byName: string }
   | { kind: 'self_done'; byName: string }
-  | { kind: 'rejected'; byName: string };
+  | { kind: 'rejected'; byName: string }
+  | { kind: 'withdrawn' };
 
 export type ApprovalSkippedCardInput = ApprovalReimbursementCardSummary & {
   resolve: ApprovalCardResolve;
@@ -1061,24 +1062,35 @@ export type ApprovalSkippedCardInput = ApprovalReimbursementCardSummary & {
 export function formatApprovalReimbursementMarkdown(
   summary: ApprovalReimbursementCardSummary,
 ): string {
+  const detailFields = (summary.detailFields || []).filter(
+    (field) => field?.label && field.value !== '' && field.value != null,
+  );
+  const detailLabels = new Set(detailFields.map((field) => field.label));
+
   const amountText = `¥${Number(summary.amount || 0).toFixed(2)}`;
-  const lines: string[] = [
-    `**申请人**：${summary.applicantName || '申请人'}`,
-    `**类型**：${summary.category || '-'}`,
-    `**金额**：${amountText}`,
+  const fixedRows: ApprovalDetailField[] = [
+    { label: '申请人', value: summary.applicantName || '申请人' },
+    { label: '类型', value: summary.category || '-' },
+    { label: '金额', value: amountText },
   ];
   if (summary.applyDate) {
-    lines.push(`**申请日**：${summary.applyDate}`);
+    fixedRows.push({ label: '申请日', value: summary.applyDate });
   }
   if (summary.companyName) {
-    lines.push(`**公司**：${summary.companyName}`);
+    fixedRows.push({ label: '公司', value: summary.companyName });
   }
   if (summary.paymentAccount) {
-    lines.push(`**收款账户**：${summary.paymentAccount}`);
+    fixedRows.push({ label: '收款账户', value: summary.paymentAccount });
   }
 
-  for (const field of summary.detailFields || []) {
-    if (!field?.label || field.value === '' || field.value == null) continue;
+  const lines: string[] = [];
+  // 固定字段与 detail 字段同名时以 detail 为准，避免重复展示（如金额）
+  for (const row of fixedRows) {
+    if (detailLabels.has(row.label)) continue;
+    lines.push(`**${row.label}**：${row.value}`);
+  }
+
+  for (const field of detailFields) {
     lines.push(`**${field.label}**：${field.value}`);
   }
 
@@ -1104,17 +1116,39 @@ export function buildApprovalPendingCard(input: ApprovalPendingCardInput) {
         color: 'orange',
       }),
       [
-        markdown(formatApprovalReimbursementMarkdown(input)),
-        buttonRow([
-          button('通过', 'primary', {
-            action: 'approval_approve',
-            approval_record_id: input.approvalRecordId,
-          }),
-          button('驳回', 'danger', {
-            action: 'approval_reject',
-            approval_record_id: input.approvalRecordId,
-          }),
-        ]),
+        {
+          tag: 'form',
+          name: 'approval_form',
+          vertical_spacing: 'large',
+          elements: [
+            markdown(formatApprovalReimbursementMarkdown(input)),
+            {
+              tag: 'input',
+              name: 'reject_reason',
+              required: true,
+              width: 'fill',
+              placeholder: plainText('请填写驳回原因'),
+            },
+            buttonRow([
+              button('通过', 'primary', {
+                action: 'approval_approve',
+                approval_record_id: input.approvalRecordId,
+              }),
+              button(
+                '驳回',
+                'danger',
+                {
+                  action: 'approval_reject',
+                  approval_record_id: input.approvalRecordId,
+                },
+                {
+                  name: 'btn_approval_reject',
+                  formActionType: 'submit',
+                },
+              ),
+            ]),
+          ],
+        },
       ],
     ),
   };
@@ -1143,6 +1177,16 @@ function resolveSkippedHeader(resolve: ApprovalCardResolve): {
       tag: { text: '已处理', color: 'green' },
       statusLine: `你已审批通过（**${resolve.byName}**），本卡无需再操作。`,
       tip: '你已审批通过',
+    };
+  }
+  if (resolve.kind === 'withdrawn') {
+    return {
+      title: '审批已撤回',
+      template: 'orange',
+      tag: { text: '已撤回', color: 'orange' },
+      statusLine:
+        '该报销记录已被撤回至待审批，需重新审批。本卡已失效，请留意新的待办卡片。',
+      tip: '该报销记录已撤回',
     };
   }
   return {

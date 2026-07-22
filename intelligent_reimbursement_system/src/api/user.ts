@@ -15,6 +15,8 @@ export interface UserInfo {
   payment_account?: string;
   company_id?: string;
   company_name?: string;
+  /** 所属部门名称（员工档案优先，否则用户表） */
+  department?: string;
 }
 
 export interface MenuItem {
@@ -34,6 +36,8 @@ export interface LoginResult {
   refreshToken: string;
   user: UserInfo;
   permissions: string[];
+  /** 角色 name 列表，如 admin / employee */
+  roles: string[];
   menus: MenuItem[];
 }
 

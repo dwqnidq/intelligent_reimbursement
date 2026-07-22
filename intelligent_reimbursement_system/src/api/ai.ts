@@ -45,6 +45,7 @@ export interface StreamChunk {
 	type?: string;
 	message?: string;
 	data?: unknown;
+	progress?: { done: number; total: number; stage?: string; message?: string; file_index?: number };
 }
 
 function getToken(): string {

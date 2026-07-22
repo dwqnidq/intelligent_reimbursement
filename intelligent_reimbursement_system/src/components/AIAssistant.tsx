@@ -29,6 +29,12 @@ import { uploadFile } from "../api/file";
 import { getDepartmentNameOptions } from "../api/department";
 import { useAIStore } from "../store/useAIStore";
 import { useAuthStore } from "../store/useAuthStore";
+import {
+  canPersistAiChatHistory,
+  resolveAiChatUserId,
+} from "../utils/aiChatHistory";
+import { normalizeProgress, defaultProgressMessage, type AiProgress } from "../utils/aiProgress";
+import { isSystemAdmin } from "../utils/isSystemAdmin";
 import type {
   AIReimbursementTypeDraft,
   AIChatMessage,
@@ -96,6 +102,8 @@ type AIChatExtractPayload = {
   items: RecognitionInvoiceItem[];
   mode: ResultCardMode;
   status: "recognizing" | "active" | "cancelled" | "submitted";
+  progress?: AiProgress;
+  logLines?: string[];
   submitResult?: { count: number; total: number };
 };
 
@@ -107,6 +115,8 @@ function getExtractPayload(data: unknown): AIChatExtractPayload | null {
 }
 
 function emptyExtractPayload(fileNames: string[]): AIChatExtractPayload {
+  const total = fileNames.length;
+  const prepareMsg = `准备识别… 共 ${total} 个文件`;
   return {
     kind: "extract",
     fileNames,
@@ -115,7 +125,16 @@ function emptyExtractPayload(fileNames: string[]): AIChatExtractPayload {
     items: [],
     mode: "all_unmatched",
     status: "recognizing",
+    progress: { done: 0, total, stage: "prepare", message: prepareMsg },
+    logLines: [prepareMsg],
   };
+}
+
+function appendLogLine(lines: string[] | undefined, message: string): string[] {
+  const prev = lines ?? [];
+  if (!message.trim()) return prev;
+  if (prev[prev.length - 1] === message) return prev;
+  return [...prev, message];
 }
 
 function FileKindIcon({ kind }: { kind: AIChatAttachment["kind"] }) {
@@ -287,6 +306,7 @@ export default function AIAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const extractFilesRef = useRef<Map<string, File[]>>(new Map());
+  const loadedHistoryUserIdRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const setReimbursementTypeDraft = useAIStore(
     (s) => s.setReimbursementTypeDraft,
@@ -296,9 +316,9 @@ export default function AIAssistant() {
   const clearChatMessages = useAIStore((s) => s.clearChatMessages);
   const menus = useAuthStore((s) => s.menus);
   const user = useAuthStore((s) => s.user);
-  const isAdmin = useAuthStore((s) => s.hasPermission("reimbursement:approve"));
+  const isAdmin = useAuthStore((s) => isSystemAdmin(s.roles));
 
-  const userId = user?._id ?? "guest";
+  const userId = resolveAiChatUserId(user);
 
   const profileReady = Boolean(
     user?.payment_account?.trim() &&
@@ -333,6 +353,7 @@ export default function AIAssistant() {
   }, [messages, recognizing, pendingFiles]);
 
   useEffect(() => {
+    loadedHistoryUserIdRef.current = null;
     setHistoryLoaded(false);
     setMessages([]);
     setPendingFiles([]);
@@ -341,14 +362,29 @@ export default function AIAssistant() {
 
   useEffect(() => {
     if (!isOpen || historyLoaded) return;
+    if (!userId) {
+      setMessages([]);
+      loadedHistoryUserIdRef.current = null;
+      setHistoryLoaded(true);
+      return;
+    }
     setMessages(getChatMessages(userId));
+    loadedHistoryUserIdRef.current = userId;
     setHistoryLoaded(true);
   }, [isOpen, historyLoaded, userId, getChatMessages]);
 
   useEffect(() => {
-    if (!historyLoaded) return;
+    if (
+      !canPersistAiChatHistory({
+        historyLoaded,
+        activeUserId: userId,
+        writingUserId: loadedHistoryUserIdRef.current,
+      })
+    ) {
+      return;
+    }
     const persistable = messages.filter((m) => !m.streaming);
-    setChatMessages(userId, persistable);
+    setChatMessages(userId!, persistable);
   }, [messages, userId, setChatMessages, historyLoaded]);
 
   useEffect(() => {
@@ -422,6 +458,9 @@ export default function AIAssistant() {
       const assistantMsgId = newMessageId();
       const attachments = files.map(fileToAttachment);
       const fileNames = files.map((f) => f.name);
+      const lockedUserId = userId;
+      const isStreamUserCurrent = () =>
+        resolveAiChatUserId(useAuthStore.getState().user) === lockedUserId;
 
       setRecognizing(true);
       extractFilesRef.current.set(assistantMsgId, files);
@@ -451,19 +490,49 @@ export default function AIAssistant() {
         if (types.length === 0 && loadedTypes.length > 0) {
           setTypes(loadedTypes);
         }
+        if (!isStreamUserCurrent()) return;
 
         const fileEntries = await Promise.all(files.map(fileToBase64Entry));
+        if (!isStreamUserCurrent()) return;
         const stream = chatStreamFetch({
           message: REIMBURSEMENT_FORM_EXTRACT_MESSAGE,
           files: fileEntries,
         });
         let payload: AiReimbursementFormExtractPayload | null = null;
+        let userChangedDuringStream = false;
 
         for await (const chunk of stream) {
+          if (!isStreamUserCurrent()) {
+            userChangedDuringStream = true;
+            break;
+          }
+          if (!chunk.done && chunk.type === "progress") {
+            const progress = normalizeProgress(chunk.progress);
+            if (!progress) continue;
+            const message = defaultProgressMessage(progress);
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                const extract = getExtractPayload(m.data);
+                if (!extract) return m;
+                return {
+                  ...m,
+                  data: {
+                    ...extract,
+                    progress,
+                    logLines: appendLogLine(extract.logLines, message),
+                    status: "recognizing",
+                  },
+                };
+              }),
+            );
+            continue;
+          }
           if (chunk.done && chunk.type === "reimbursement_form_extract") {
             payload = chunk.data as AiReimbursementFormExtractPayload;
           }
         }
+        if (userChangedDuringStream || !isStreamUserCurrent()) return;
 
         if (!payload) {
           antdMessage.error("未能获取识别结果，请重试");
@@ -506,12 +575,17 @@ export default function AIAssistant() {
                     items,
                     mode,
                     status: "active",
+                    progress: {
+                      done: fileNames.length,
+                      total: fileNames.length,
+                    },
                   } satisfies AIChatExtractPayload,
                 }
               : m,
           ),
         );
       } catch {
+        if (!isStreamUserCurrent()) return;
         antdMessage.error("识别失败，请稍后再试");
         setMessages((prev) =>
           prev.map((m) =>
@@ -531,7 +605,7 @@ export default function AIAssistant() {
         setRecognizing(false);
       }
     },
-    [types],
+    [types, userId],
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -766,6 +840,7 @@ export default function AIAssistant() {
   };
 
   const handleClearHistory = () => {
+    if (!userId) return;
     clearChatMessages(userId);
     setMessages([]);
     clearPendingFiles();
@@ -781,7 +856,18 @@ export default function AIAssistant() {
     const isRecognizing =
       streaming || extract.status === "recognizing" || recognizing;
     if (isRecognizing) {
-      return <ProgressCard done={0} total={1} hint="正在 AI 识别发票…" />;
+      const progress = extract.progress ?? {
+        done: 0,
+        total: Math.max(1, extract.fileNames.length),
+      };
+      const total = progress.total || Math.max(1, extract.fileNames.length);
+      return (
+        <ProgressCard
+          done={progress.done}
+          total={total}
+          lines={extract.logLines}
+        />
+      );
     }
 
     const frozen = extract.status !== "active";

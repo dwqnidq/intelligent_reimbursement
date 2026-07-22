@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Form, Input, Button, message, Select } from "antd";
-import { BankOutlined } from "@ant-design/icons";
+import { Form, Input, Button, message, Select, Modal, Divider } from "antd";
+import { BankOutlined, PlusOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { updateProfileSetup } from "../api/user";
 import type { MenuItem } from "../api/user";
-import { getCompanyNameOptions } from "../api/company";
+import { getCompanyNameOptions, createCompany } from "../api/company";
 import type { CompanyNameOption } from "../api/company";
 import { useAuthStore } from "../store/useAuthStore";
 
@@ -21,12 +21,27 @@ function findFirstPath(menus: MenuItem[]): string | null {
 
 export default function ProfileSetupPage() {
   const [form] = Form.useForm();
+  const [createForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [companyLoading, setCompanyLoading] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<CompanyNameOption[]>([]);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
-  const { user, setAuth, token, refreshToken, permissions, menus } =
+  const { user, setAuth, token, refreshToken, permissions, roles, menus } =
     useAuthStore();
+
+  const loadCompanyOptions = async () => {
+    setCompanyLoading(true);
+    try {
+      const list = await getCompanyNameOptions();
+      setCompanyOptions(Array.isArray(list) ? list : []);
+    } catch {
+      setCompanyOptions([]);
+    } finally {
+      setCompanyLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -40,14 +55,36 @@ export default function ProfileSetupPage() {
   }, [form, navigate, user]);
 
   useEffect(() => {
-    setCompanyLoading(true);
-    getCompanyNameOptions()
-      .then((list) => setCompanyOptions(Array.isArray(list) ? list : []))
-      .catch(() => setCompanyOptions([]))
-      .finally(() => setCompanyLoading(false));
+    void loadCompanyOptions();
   }, []);
 
   if (!user) return null;
+
+  const openCreateModal = () => {
+    createForm.resetFields();
+    setCreateModalOpen(true);
+  };
+
+  const handleCreateCompany = async (values: { name: string }) => {
+    const name = values.name.trim();
+    if (!name) {
+      message.error("请输入公司名称");
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await createCompany({ name });
+      const newId = String(res.id);
+      message.success("公司已创建");
+      setCreateModalOpen(false);
+      await loadCompanyOptions();
+      form.setFieldsValue({ company_id: newId });
+    } catch {
+      // 错误提示由拦截器处理
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const onFinish = async (values: {
     company_id: string;
@@ -73,6 +110,7 @@ export default function ProfileSetupPage() {
         refreshToken,
         user: res.user,
         permissions,
+        roles,
         menus,
       });
       message.success("资料已保存");
@@ -89,7 +127,7 @@ export default function ProfileSetupPage() {
       className="min-h-screen flex items-center justify-center px-4 relative"
       style={{
         background:
-          "radial-gradient(1200px 600px at 10% -10%, #d1fae5 0%, transparent 55%), radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%), linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%)",
+          "radial-gradient(1200px 600px at 10% -10%, #dbeafe 0%, transparent 55%), radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%), linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%)",
       }}
     >
       <div className="w-full max-w-sm relative" style={{ zIndex: 1 }}>
@@ -99,8 +137,8 @@ export default function ProfileSetupPage() {
             style={{
               width: 56,
               height: 56,
-              background: "linear-gradient(145deg, #0d9488, #0f766e)",
-              boxShadow: "0 8px 30px rgba(15, 118, 110, 0.3)",
+              background: "linear-gradient(145deg, #2563eb, #1d4ed8)",
+              boxShadow: "0 8px 30px rgba(29, 78, 216, 0.3)",
             }}
           >
             <BankOutlined className="text-white text-xl" />
@@ -135,6 +173,21 @@ export default function ProfileSetupPage() {
                 }))}
                 showSearch
                 optionFilterProp="label"
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: "8px 0" }} />
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={openCreateModal}
+                      className="w-full !text-left"
+                    >
+                      新增公司
+                    </Button>
+                  </>
+                )}
               />
             </Form.Item>
             <Form.Item
@@ -151,7 +204,6 @@ export default function ProfileSetupPage() {
                 htmlType="submit"
                 className="w-full !h-11 !text-[15px] !font-semibold"
                 loading={loading}
-                disabled={companyOptions.length === 0}
               >
                 保存并继续
               </Button>
@@ -159,6 +211,32 @@ export default function ProfileSetupPage() {
           </Form>
         </div>
       </div>
+
+      <Modal
+        title="新增公司"
+        open={createModalOpen}
+        onCancel={() => setCreateModalOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={createForm} layout="vertical" onFinish={handleCreateCompany}>
+          <Form.Item
+            label="公司名称"
+            name="name"
+            rules={[{ required: true, message: "请输入公司名称" }]}
+          >
+            <Input placeholder="请输入公司全称" maxLength={100} />
+          </Form.Item>
+          <Form.Item className="mb-0">
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setCreateModalOpen(false)}>取消</Button>
+              <Button type="primary" htmlType="submit" loading={creating}>
+                创建
+              </Button>
+            </div>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

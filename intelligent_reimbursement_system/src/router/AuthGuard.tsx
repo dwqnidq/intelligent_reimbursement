@@ -35,6 +35,7 @@ export default function AuthGuard({ children }: Props) {
           refreshToken: res.refreshToken,
           user: res.user,
           permissions: res.permissions,
+          roles: res.roles ?? [],
           menus: res.menus,
         });
       })

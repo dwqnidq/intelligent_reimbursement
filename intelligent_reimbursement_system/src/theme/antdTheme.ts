@@ -1,13 +1,13 @@
 import type { ThemeConfig } from "antd";
 
-/** 飞书风格青绿主题 — 与报销卡片配色一致 */
+/** 海蓝商务主题 — 全站主色（报销记录卡片仍用自身配色，不受此影响） */
 export const appTheme: ThemeConfig = {
   token: {
-    colorPrimary: "#0f766e",
-    colorPrimaryHover: "#0d9488",
-    colorPrimaryActive: "#115e59",
-    colorLink: "#0f766e",
-    colorLinkHover: "#0d9488",
+    colorPrimary: "#1d4ed8",
+    colorPrimaryHover: "#2563eb",
+    colorPrimaryActive: "#1e40af",
+    colorLink: "#1d4ed8",
+    colorLinkHover: "#2563eb",
     colorSuccess: "#16a34a",
     colorWarning: "#ea580c",
     colorError: "#dc2626",
@@ -37,13 +37,13 @@ export const appTheme: ThemeConfig = {
       itemHeight: 40,
       itemMarginInline: 12,
       iconSize: 16,
-      itemSelectedColor: "#115e59",
+      itemSelectedColor: "#1e40af",
       itemSelectedBg: "#ffffff",
-      itemHoverBg: "rgba(15, 118, 110, 0.05)",
+      itemHoverBg: "rgba(29, 78, 216, 0.05)",
       subMenuItemBg: "transparent",
     },
     Button: {
-      primaryShadow: "0 2px 8px rgba(15, 118, 110, 0.25)",
+      primaryShadow: "0 2px 8px rgba(29, 78, 216, 0.25)",
     },
     Card: {
       borderRadiusLG: 14,
@@ -51,7 +51,7 @@ export const appTheme: ThemeConfig = {
     Table: {
       headerBg: "#f8fafc",
       headerColor: "#64748b",
-      rowHoverBg: "#f0fdfa",
+      rowHoverBg: "#eff6ff",
     },
   },
 };

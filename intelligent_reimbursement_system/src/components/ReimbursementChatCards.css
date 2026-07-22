@@ -1,4 +1,4 @@
-/* 对齐 feishu-cards-gallery.html 青绿主色 */
+/* 对齐 feishu-cards-gallery.html 海蓝主色 */
 .rc-card {
   margin-top: 10px;
   border-radius: 12px;
@@ -29,7 +29,7 @@
 }
 
 .rc-banner.teal {
-  background: linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%);
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #3b82f6 100%);
 }
 .rc-banner.blue {
   background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
@@ -89,7 +89,7 @@
   display: block;
   font-size: 16px;
   font-weight: 700;
-  color: #115e59;
+  color: #1e40af;
   line-height: 1.1;
 }
 
@@ -136,7 +136,7 @@
 .rc-invoice-top .amount {
   font-size: 14px;
   font-weight: 700;
-  color: #115e59;
+  color: #1e40af;
   white-space: nowrap;
 }
 
@@ -247,9 +247,9 @@
 }
 
 .rc-btn.primary {
-  background: linear-gradient(180deg, #0d9488, #0f766e);
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.28);
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.28);
 }
 
 .rc-btn.secondary {
@@ -276,14 +276,79 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #0d9488, #2dd4bf);
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
   transition: width 0.3s ease;
 }
 
 .rc-progress-label {
   font-size: 12px;
   color: var(--text-secondary, #64748b);
-  margin-bottom: 4px;
+  margin-bottom: 0;
+}
+
+.rc-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.rc-progress-frac {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-stream-box {
+  width: 100%;
+  max-width: 320px;
+  height: 120px;
+  margin: 0 auto;
+  border: 1px dashed #c5d4e3;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary, #1e293b);
+}
+
+.rc-stream-line {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rc-stream-line:last-child {
+  margin-bottom: 0;
+}
+
+.rc-stream-line-muted {
+  color: var(--text-secondary, #64748b);
+}
+
+.rc-stream-stage {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.rc-stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: #2563eb;
+  animation: rc-stream-blink 0.9s step-end infinite;
+}
+
+@keyframes rc-stream-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .rc-type-select {

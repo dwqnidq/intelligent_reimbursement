@@ -17,6 +17,7 @@ export const getCompanyNameOptions = () =>
 
 export const getCompanies = () => http.get<Company[]>("/companies");
 
+/** 任意登录用户可创建；返回新建公司 id */
 export const createCompany = (params: { name: string }) =>
   http.post<{ id: string }>("/companies", params);
 

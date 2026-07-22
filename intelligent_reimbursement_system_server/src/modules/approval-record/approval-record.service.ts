@@ -17,9 +17,14 @@ import { Department } from '../../schemas/department.schema';
 import { Reimbursement } from '../../schemas/reimbursement_records.schema';
 import { User } from '../../schemas/user.schema';
 import { ApprovalNotifyService } from '../approval-notify/approval-notify.service';
+import { PromiseChainLock } from '../feishu-bot/feishu-promise-chain-lock.util';
+import { resetFlowSnapshotForReapproval } from './approval-record-reset.util';
 
 @Injectable()
 export class ApprovalRecordService {
+  /** 同一审批单的通过/驳回/转审串行，避免飞书卡连点竞态 */
+  private readonly decisionLock = new PromiseChainLock();
+
   constructor(
     @InjectModel(ApprovalRecord.name)
     private recordModel: Model<ApprovalRecord>,
@@ -151,6 +156,39 @@ export class ApprovalRecordService {
     });
   }
 
+  /**
+   * 撤回后原地重置审批记录（清转审加人、进度与操作日志），不发通知。
+   * 无审批记录时返回 null。
+   */
+  async resetForReapproval(
+    reimbursementId: string,
+  ): Promise<ApprovalRecord | null> {
+    const record = await this.recordModel.findOne({
+      record_id: reimbursementId,
+    });
+    if (!record) return null;
+
+    record.status = 'pending';
+    record.cur_node_idx = 0;
+    record.actions = [];
+    record.flow_snapshot = resetFlowSnapshotForReapproval(
+      record.flow_snapshot,
+    ) as ApprovalRecord['flow_snapshot'];
+    await record.save();
+    return record;
+  }
+
+  /** 撤回：重置审批数据并异步重开第一节点推送 */
+  async resetAndReopenAfterWithdraw(
+    reimbursementId: string,
+  ): Promise<ApprovalRecord | null> {
+    const record = await this.resetForReapproval(reimbursementId);
+    if (record) {
+      void this.approvalNotify?.reopenAfterWithdraw(String(record._id));
+    }
+    return record;
+  }
+
   /** 当前用户是否仍可在该节点审批（排除 skipped / 已批） */
   private canActOnNode(
     node: SnapshotNode,
@@ -274,26 +312,9 @@ export class ApprovalRecordService {
     const results: Record<string, unknown>[] = [];
 
     for (const record of allRecords) {
-      // Check if user has any action in this record
+      // 仅展示本人有过操作的记录（撤回重置后 actions 为空则从历史消失）
       const myAction = record.actions.find((a) => a.approver_name === emp.name);
-
-      // Check if user is an approver in any node
-      const isApproverInAnyNode = record.flow_snapshot.nodes.some(
-        (node) => node.approvers.some((a) => a.name === emp.name),
-      );
-
-      if (!myAction && !isApproverInAnyNode) continue;
-
-      // If record is pending and user is on the current node without action, skip (that's findMyPending's job)
-      if (record.status === 'pending') {
-        const curNode = record.flow_snapshot.nodes[record.cur_node_idx];
-        if (curNode?.approvers.some((a) => a.name === emp.name)) {
-          const actedOnCurrentNode = record.actions.some(
-            (a) => a.approver_name === emp.name && a.node_id === curNode.node_id,
-          );
-          if (!actedOnCurrentNode) continue;
-        }
-      }
+      if (!myAction) continue;
 
       const reimbursement = await this.reimbursementModel
         .findById(record.record_id)
@@ -337,6 +358,16 @@ export class ApprovalRecordService {
 
   // Approve
   async approve(recordId: string, userId: string, comment?: string) {
+    return this.decisionLock.run(`ar:${recordId}`, () =>
+      this.executeApprove(recordId, userId, comment),
+    );
+  }
+
+  private async executeApprove(
+    recordId: string,
+    userId: string,
+    comment?: string,
+  ) {
     const record = await this.recordModel.findById(recordId);
     if (!record) throw new NotFoundException('审批记录不存在');
     if (record.status !== 'pending')
@@ -450,6 +481,16 @@ export class ApprovalRecordService {
 
   // Reject
   async reject(recordId: string, userId: string, comment?: string) {
+    return this.decisionLock.run(`ar:${recordId}`, () =>
+      this.executeReject(recordId, userId, comment),
+    );
+  }
+
+  private async executeReject(
+    recordId: string,
+    userId: string,
+    comment?: string,
+  ) {
     const record = await this.recordModel.findById(recordId);
     if (!record) throw new NotFoundException('审批记录不存在');
     if (record.status !== 'pending')
@@ -516,6 +557,17 @@ export class ApprovalRecordService {
 
   // Transfer (转审)
   async transfer(
+    recordId: string,
+    userId: string,
+    targetEmployeeId: string,
+    comment?: string,
+  ) {
+    return this.decisionLock.run(`ar:${recordId}`, () =>
+      this.executeTransfer(recordId, userId, targetEmployeeId, comment),
+    );
+  }
+
+  private async executeTransfer(
     recordId: string,
     userId: string,
     targetEmployeeId: string,

@@ -18,15 +18,15 @@ import type { ReimbursementRecord } from "../api/reimbursement";
 import { getRecordAmount } from "../utils/reimbursementAmount";
 import "./DashboardCharts.css";
 
-const TEAL_PALETTE = [
-  "#0f766e",
-  "#14b8a6",
-  "#2dd4bf",
-  "#5eead4",
-  "#0d9488",
-  "#115e59",
-  "#134e4a",
-  "#99f6e4",
+const BLUE_PALETTE = [
+  "#1d4ed8",
+  "#3b82f6",
+  "#60a5fa",
+  "#93c5fd",
+  "#2563eb",
+  "#1e40af",
+  "#1e3a8a",
+  "#bfdbfe",
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -62,7 +62,7 @@ function ChartTooltip({
       <div className="dashboard-chart-tooltip-row">
         <span
           className="dashboard-chart-tooltip-dot"
-          style={{ background: item.color ?? "#0f766e" }}
+          style={{ background: item.color ?? "#1d4ed8" }}
         />
         <span>{valueFormatter ? valueFormatter(value) : value}</span>
       </div>
@@ -166,7 +166,7 @@ export default function DashboardCharts({
           name: truncateLabel(name),
           fullName: name,
           amount: Math.round(amount * 100) / 100,
-          fill: TEAL_PALETTE[i % TEAL_PALETTE.length],
+          fill: BLUE_PALETTE[i % BLUE_PALETTE.length],
         }));
 
       const statusData = ["pending", "approved", "rejected"]
@@ -251,7 +251,7 @@ export default function DashboardCharts({
                   <div className="dashboard-chart-tooltip">
                     <div className="dashboard-chart-tooltip-title">{row.metric}</div>
                     <div className="dashboard-chart-tooltip-row">
-                      <span className="dashboard-chart-tooltip-dot" style={{ background: "#0f766e" }} />
+                      <span className="dashboard-chart-tooltip-dot" style={{ background: "#1d4ed8" }} />
                       <span>本月 {row.metric.includes("金额") ? formatCurrency(row.current) : row.current}</span>
                     </div>
                     <div className="dashboard-chart-tooltip-row" style={{ marginTop: 4 }}>
@@ -272,7 +272,7 @@ export default function DashboardCharts({
                 <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{value}</span>
               )}
             />
-            <Bar yAxisId="value" dataKey="current" name="本月" fill="#0f766e" radius={[6, 6, 0, 0]} maxBarSize={36} />
+            <Bar yAxisId="value" dataKey="current" name="本月" fill="#1d4ed8" radius={[6, 6, 0, 0]} maxBarSize={36} />
             <Bar yAxisId="value" dataKey="previous" name="上月" fill="#cbd5e1" radius={[6, 6, 0, 0]} maxBarSize={36} />
           </BarChart>
         </ResponsiveContainer>
@@ -416,8 +416,8 @@ export default function DashboardCharts({
             <AreaChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="amountGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -445,7 +445,7 @@ export default function DashboardCharts({
                     <div className="dashboard-chart-tooltip">
                       <div className="dashboard-chart-tooltip-title">{row.fullDate ?? label}</div>
                       <div className="dashboard-chart-tooltip-row">
-                        <span className="dashboard-chart-tooltip-dot" style={{ background: "#14b8a6" }} />
+                        <span className="dashboard-chart-tooltip-dot" style={{ background: "#3b82f6" }} />
                         <span>金额 {formatCurrency(row.amount ?? 0)}</span>
                       </div>
                       <div className="dashboard-chart-tooltip-row" style={{ marginTop: 4 }}>
@@ -466,11 +466,11 @@ export default function DashboardCharts({
                 type="monotone"
                 dataKey="amount"
                 name="金额"
-                stroke="#0f766e"
+                stroke="#1d4ed8"
                 strokeWidth={2.5}
                 fill="url(#amountGradient)"
-                dot={{ r: 3, fill: "#0f766e", strokeWidth: 0 }}
-                activeDot={{ r: 5, fill: "#0f766e" }}
+                dot={{ r: 3, fill: "#1d4ed8", strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: "#1d4ed8" }}
               />
               <Area
                 yAxisId="count"

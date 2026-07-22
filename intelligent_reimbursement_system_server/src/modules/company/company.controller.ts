@@ -34,7 +34,7 @@ export class CompanyController {
     return this.service.findAll(userId);
   }
 
-  @ApiOperation({ summary: '创建公司（仅管理员）' })
+  @ApiOperation({ summary: '创建公司（任意登录用户；改/删仍仅管理员）' })
   @Post()
   create(@CurrentUser('id') userId: string, @Body() dto: CreateCompanyDto) {
     return this.service.create(userId, dto);

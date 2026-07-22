@@ -136,6 +136,9 @@ export const searchReimbursement = (params: ReimbursementListParams) =>
 export const getReimbursementTreeList = (params?: ReimbursementListParams) =>
   http.get<ReimbursementTreeResult>("/reimbursements/tree", { params });
 
+export const getReimbursementById = (id: string) =>
+  http.get<ReimbursementRecord>(`/reimbursements/${id}`);
+
 /** 请求体为数组：每项一包；前端多行表单通常映射为 [{..., details:[row1]}, {..., details:[row2]}, ...] */
 export const checkInvoiceNumber = (number: string) =>
   http.get<{ available: boolean; invoice_number: string; message?: string }>(

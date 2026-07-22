@@ -25,6 +25,7 @@ export default function SetTokenPage() {
             payment_account?: string;
           };
           permissions: string[];
+          roles?: string[];
           menus: MenuItem[];
         }>("/users/auth/feishu/session");
         setAuth({
@@ -32,6 +33,7 @@ export default function SetTokenPage() {
           refreshToken: res.refreshToken ?? "",
           user: res.user,
           permissions: res.permissions,
+          roles: res.roles ?? [],
           menus: res.menus,
         });
         window.location.replace(resolvePostLoginPath(res.user, res.menus));

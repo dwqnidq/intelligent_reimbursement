@@ -6,11 +6,9 @@ import {
 	Select,
 	DatePicker,
 	Button,
-	Card,
 	message,
 	Image,
 	Spin,
-	Segmented,
 	Alert,
 } from 'antd';
 import { InboxOutlined, EyeOutlined } from '@ant-design/icons';
@@ -48,9 +46,24 @@ import {
 	type FileSlotRecognitionSummary,
 	type InvoiceDuplicateIssue,
 } from '../utils/reimbursementRecognition';
+import {
+	FILE_RECOG_STATUS_LABEL,
+	resolveFileRecogUiStatus,
+	type FileRecogUiStatus,
+} from '../utils/fileRecogUiStatus';
+import { resolveFileSlotBlobUrl } from '../utils/fileSlotPreview';
+import { normalizeProgress } from '../utils/aiProgress';
 import dayjs from 'dayjs';
+import './ReimbursementForm.css';
 
 const { TextArea } = Input;
+
+function formatUploadSize(bytes?: number): string {
+	if (bytes == null || Number.isNaN(bytes) || bytes < 0) return '';
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /** 部分系统/浏览器下 file.type 为空，用于预览弹窗正确识别图片/PDF */
 function inferMimeFromFileName(fileName: string): string | undefined {
@@ -274,97 +287,83 @@ function FileSlotRecognitionBanner({
 	types?: ReimbursementType[];
 	onSelectType?: (fileIndex: number, categoryId: string) => void;
 }) {
+	const [editingType, setEditingType] = useState(false);
 	const isDuplicate = Boolean(s.invoiceDuplicate || s.invoiceBatchDuplicate);
-	const mime = resolveUploadFileMime(file);
+	const matched = Boolean(s.matched || s.userSelectedCategoryId);
+	const showTypeSelect =
+		!isDuplicate &&
+		Boolean(types?.length && onSelectType) &&
+		(!matched || editingType);
 	const canPreview = Boolean(blobUrl && onPreview);
 
+	const metaLine = (() => {
+		if (isDuplicate) {
+			if (s.invoiceDuplicate) {
+				return (
+					s.fillError ??
+					`该发票已上传${s.invoiceNumber ? `，发票号码：${s.invoiceNumber}` : ''}`
+				);
+			}
+			return `发票号码重复${s.invoiceNumber ? `（${s.invoiceNumber}）` : ''}，请移除重复文件`;
+		}
+		const parts: string[] = [];
+		if (s.label) parts.push(s.label);
+		else if (s.rowCount > 0) parts.push('未识别到报销类型');
+		if (s.invoiceNumber) parts.push(`发票号 ${s.invoiceNumber}`);
+		if (s.invoiceTitle) parts.push(`抬头 ${s.invoiceTitle}`);
+		if (s.rowCount > 0) parts.push(`共 ${s.rowCount} 条明细`);
+		if (s.fillError) parts.push(s.fillError);
+		if (!matched && s.isSuggested) parts.push('建议类型，请手动选择');
+		else if (!matched && s.label) parts.push('未匹配系统类型，请手动选择');
+		else if (!matched && s.rowCount > 0) parts.push('请手动选择类型');
+		return parts.join(' · ') || '未识别到报销类型';
+	})();
+
 	return (
-		<div
-			className={`rounded-lg border px-3 py-2.5 text-sm flex flex-col gap-2 ${
-				isDuplicate
-					? 'border-red-300 bg-red-50 text-red-700'
-					: 'border-[var(--border-color)] bg-[var(--bg-page)] text-[var(--text-primary)]'
-			}`}
-		>
-			<div className="flex items-start gap-2">
-			<span className="leading-relaxed flex-1 min-w-0">
-				{s.fileName ? (
-					<span className="font-medium">{s.fileName}</span>
-				) : (
-					<span>文件 {s.fileIndex}</span>
-				)}
-				{s.invoiceDuplicate ? (
-					<span className="ml-2 font-medium">
-						{s.fillError ??
-							`该发票已上传${s.invoiceNumber ? `，发票号码：${s.invoiceNumber}` : ''}`}
-					</span>
-				) : s.invoiceBatchDuplicate ? (
-					<span className="ml-2 font-medium">
-						发票号码重复{s.invoiceNumber ? `（${s.invoiceNumber}）` : ''}，请移除重复文件
-					</span>
-				) : s.label || s.rowCount > 0 ? (
-					<span className="ml-2">
-						{s.matched || s.userSelectedCategoryId ? '识别类型：' : '未识别到报销类型'}
-						<span className="font-medium">{s.label || '—'}</span>
-						{s.rowCount > 0 ? (
-							<span className="text-[var(--text-secondary)]"> · 共 {s.rowCount} 条明细</span>
-						) : null}
-					</span>
-				) : (
-					<span className="ml-2 text-[var(--text-tertiary)]">未识别到报销类型</span>
-				)}
-				{!isDuplicate && s.invoiceNumber ? (
-					<span className="text-[var(--text-secondary)] ml-2">· 发票号 {s.invoiceNumber}</span>
-				) : null}
-				{!isDuplicate && s.invoiceTitle ? (
-					<span className="text-[var(--text-secondary)] ml-2">· 抬头 {s.invoiceTitle}</span>
-				) : null}
-				{!isDuplicate && s.invoiceDate ? (
-					<span className="text-[var(--text-secondary)] ml-2">· 开票日期 {s.invoiceDate}</span>
-				) : null}
-				{!isDuplicate && s.issuer ? (
-					<span className="text-[var(--text-secondary)] ml-2">· 开票人 {s.issuer}</span>
-				) : null}
-				{!isDuplicate && s.fillError ? (
-					<span className="text-orange-500 ml-1">（{s.fillError}）</span>
-				) : null}
-				{isDuplicate ? null : s.matched || s.userSelectedCategoryId ? (
-					<span className="text-green-500 ml-2">
-						{s.userSelectedCategoryId ? '（已手动选择类型）' : '（已匹配系统类型）'}
-					</span>
-				) : s.isSuggested ? (
-					<span className="text-amber-500 ml-2">
-						（建议类型，请手动选择或到后台创建对应类型）
-					</span>
-				) : s.label ? (
-					<span className="text-amber-500 ml-2">（未匹配系统类型，请手动选择）</span>
-				) : s.rowCount > 0 ? (
-					<span className="text-amber-500 ml-2">（未识别到报销类型，请手动选择）</span>
-				) : null}
-			</span>
-			{canPreview ? (
-				<Button
-					type="text"
-					size="small"
-					className="shrink-0"
-					icon={<EyeOutlined />}
-					aria-label="预览文件"
-					onClick={() => {
-						if (blobUrl) onPreview?.(blobUrl, mime);
-					}}
-				>
-					预览
-				</Button>
-			) : null}
+		<div className={`rf-recog-hd${isDuplicate ? ' is-error' : ''}`}>
+			<div className="rf-recog-hd-main">
+				<h3>{s.fileName || `文件 ${s.fileIndex}`}</h3>
+				<p>{metaLine}</p>
 			</div>
-			{!isDuplicate && !s.matched && types && types.length > 0 && onSelectType ? (
+			<div className="rf-recog-hd-actions">
+				{canPreview ? (
+					<button
+						type="button"
+						className="rf-text-link"
+						onClick={() => {
+							if (!blobUrl || !onPreview) return;
+							onPreview(blobUrl, resolveUploadFileMime(file));
+						}}
+					>
+						预览票据
+					</button>
+				) : null}
+				{isDuplicate ? null : matched && !editingType ? (
+					<span className="rf-file-badge rf-file-badge--matched">已匹配</span>
+				) : null}
+				{isDuplicate ? null : !matched && s.isSuggested ? (
+					<span className="rf-file-badge rf-file-badge--unmatched">建议类型</span>
+				) : null}
+				{isDuplicate ? null : !matched && !s.isSuggested && (s.label || s.rowCount > 0) ? (
+					<span className="rf-file-badge rf-file-badge--unmatched">待选类型</span>
+				) : null}
+				{!isDuplicate && matched && !editingType && types && types.length > 0 && onSelectType ? (
+					<button type="button" className="rf-chip-btn" onClick={() => setEditingType(true)}>
+						改类型
+					</button>
+				) : null}
+			</div>
+			{showTypeSelect ? (
 				<Select
-					className="w-full"
+					className="rf-recog-type-select"
 					size="small"
-					placeholder="未识别到报销类型，请手动选择"
+					placeholder="请选择报销类型"
 					value={s.userSelectedCategoryId}
-					onChange={(v) => onSelectType(s.fileIndex, v)}
-					options={types.map((t) => ({
+					onChange={(v) => {
+						onSelectType?.(s.fileIndex, v);
+						setEditingType(false);
+					}}
+					options={(types ?? []).map((t) => ({
 						value: t._id,
 						label: t.label || t.name,
 					}))}
@@ -377,11 +376,13 @@ function FileSlotRecognitionBanner({
 function LocalFileRow({
 	file,
 	blobUrl,
+	status,
 	onPreview,
 	onRemove,
 }: {
 	file: UploadFile;
 	blobUrl: string | null;
+	status?: FileRecogUiStatus;
 	onPreview: (url: string, mime?: string) => void;
 	onRemove: () => void;
 }) {
@@ -389,23 +390,32 @@ function LocalFileRow({
 	const isImg =
 		(mime?.startsWith('image/') ?? false) ||
 		(!mime && /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name));
+	const sizeText = formatUploadSize(file.size ?? file.originFileObj?.size);
 
 	return (
-		<div className="flex items-center gap-2 py-1.5 px-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-card)]">
+		<div className="rf-file-row">
 			{isImg && blobUrl ? (
 				<Image
 					src={blobUrl}
-					width={40}
-					height={40}
+					width={36}
+					height={36}
 					className="rounded object-cover shrink-0"
 					preview={false}
 				/>
 			) : (
-				<div className="w-10 h-10 flex items-center justify-center bg-red-50 rounded shrink-0 text-red-400 text-xs font-bold">
+				<div className="w-9 h-9 flex items-center justify-center bg-red-50 rounded-lg shrink-0 text-red-400 text-[10px] font-bold">
 					PDF
 				</div>
 			)}
-			<span className="text-xs text-[var(--text-secondary)] flex-1 truncate">{file.name}</span>
+			<div className="rf-file-row-meta">
+				<span className="rf-file-row-name">{file.name}</span>
+				{sizeText ? <span className="rf-file-row-size">{sizeText}</span> : null}
+			</div>
+			{status ? (
+				<span className={`rf-file-badge rf-file-badge--${status}`}>
+					{FILE_RECOG_STATUS_LABEL[status]}
+				</span>
+			) : null}
 			<Button
 				type="text"
 				size="small"
@@ -548,6 +558,10 @@ export default function ReimbursementForm() {
 	const [fileList, setFileList] = useState<UploadFile[]>([]);
 	const [submitting, setSubmitting] = useState(false);
 	const [extracting, setExtracting] = useState(false);
+	/** 识别进行中已完成的文件序号（1-based），来自 SSE progress.file_index */
+	const [extractCompletedIndexes, setExtractCompletedIndexes] = useState<Set<number>>(
+		() => new Set(),
+	);
 	const [dragOver, setDragOver] = useState(false);
 	const [lineItemMeta, setLineItemMeta] = useState<LineItemCardMeta[]>([]);
 	const [fileSlotSummaries, setFileSlotSummaries] = useState<FileSlotRecognitionSummary[]>([]);
@@ -680,6 +694,7 @@ export default function ReimbursementForm() {
 			if (dataRows.length === 0) {
 				setLineItemMeta([]);
 				setSelectedFields([]);
+				setFileSlotFields(new Map());
 				setExtractIsSuggested(false);
 				smartForm.setFieldValue('lineItems', []);
 				const matched = typesRef.current.find(
@@ -784,6 +799,7 @@ export default function ReimbursementForm() {
 		setFileSlotFields(new Map());
 		setExtractIsSuggested(false);
 		setSelectedFields([]);
+		setExtractCompletedIndexes(new Set());
 		smartForm.setFieldValue('lineItems', []);
 	}, [smartForm]);
 
@@ -881,6 +897,29 @@ export default function ReimbursementForm() {
 		}
 	}, [user?.real_name, smartForm, manualForm]);
 
+	useEffect(() => {
+		const departmentName = user?.department?.trim();
+		if (!departmentName || departmentLoading) return;
+		if (
+			departmentOptions.length > 0 &&
+			!departmentOptions.includes(departmentName)
+		) {
+			return;
+		}
+		if (!smartForm.getFieldValue('department_name')) {
+			smartForm.setFieldValue('department_name', departmentName);
+		}
+		if (!manualForm.getFieldValue('department_name')) {
+			manualForm.setFieldValue('department_name', departmentName);
+		}
+	}, [
+		user?.department,
+		departmentOptions,
+		departmentLoading,
+		smartForm,
+		manualForm,
+	]);
+
 	const syncFormsOnModeChange = useCallback(
 		(next: FillMode) => {
 			if (next === 'smart' && !smartFillEnabled) return;
@@ -900,6 +939,7 @@ export default function ReimbursementForm() {
 					);
 					manualForm.setFieldsValue({
 						applicant: smartForm.getFieldValue('applicant'),
+						department_name: smartForm.getFieldValue('department_name'),
 						applyTime: smartForm.getFieldValue('applyTime') ?? dayjs(),
 						manualItems,
 					});
@@ -907,6 +947,7 @@ export default function ReimbursementForm() {
 				} else {
 					manualForm.setFieldsValue({
 						applicant: smartForm.getFieldValue('applicant'),
+						department_name: smartForm.getFieldValue('department_name'),
 						applyTime: smartForm.getFieldValue('applyTime') ?? dayjs(),
 					});
 				}
@@ -916,6 +957,7 @@ export default function ReimbursementForm() {
 			if (next === 'smart') {
 				smartForm.setFieldsValue({
 					applicant: manualForm.getFieldValue('applicant'),
+					department_name: manualForm.getFieldValue('department_name'),
 					applyTime: manualForm.getFieldValue('applyTime') ?? dayjs(),
 				});
 			}
@@ -945,6 +987,7 @@ export default function ReimbursementForm() {
 		const files = fileList.map((f) => f.originFileObj).filter(Boolean) as File[];
 		if (files.length === 0) return;
 
+		setExtractCompletedIndexes(new Set());
 		setExtracting(true);
 		try {
 			const fileEntries = await Promise.all(files.map(fileToBase64Entry));
@@ -954,6 +997,19 @@ export default function ReimbursementForm() {
 			});
 			let got = false;
 			for await (const chunk of stream) {
+				if (!chunk.done && chunk.type === 'progress') {
+					const progress = normalizeProgress(chunk.progress);
+					if (progress?.file_index) {
+						const idx = progress.file_index;
+						setExtractCompletedIndexes((prev) => {
+							if (prev.has(idx)) return prev;
+							const next = new Set(prev);
+							next.add(idx);
+							return next;
+						});
+					}
+					continue;
+				}
 				if (
 					chunk.done &&
 					chunk.type === 'reimbursement_form_extract' &&
@@ -972,6 +1028,7 @@ export default function ReimbursementForm() {
 			console.log('智能识别服务异常');
 		} finally {
 			setExtracting(false);
+			setExtractCompletedIndexes(new Set());
 		}
 	}, [fileList, applyExtractResult]);
 
@@ -1268,46 +1325,52 @@ export default function ReimbursementForm() {
 	}
 
 	return (
-		<Card className="w-full flex flex-col flex-1">
+		<div className="rf-workbench">
 			{fillSettingsLoading ? (
 				<div className="py-16 flex justify-center">
 					<Spin tip="加载填写方式配置…" />
 				</div>
 			) : !smartFillEnabled && !manualFillEnabled ? (
-				<Alert
-					type="warning"
-					showIcon
-					message="暂无可用的报销填写方式"
-					description="请联系管理员在「报销单填写方式」中至少启用一种填写入口。"
-				/>
+				<div className="p-6">
+					<Alert
+						type="warning"
+						showIcon
+						message="暂无可用的报销填写方式"
+						description="请联系管理员在「报销单填写方式」中至少启用一种填写入口。"
+					/>
+				</div>
 			) : (
 				<>
-			{showFillModeSwitcher ? (
-			<div className="mb-5 w-full">
-				<Segmented<FillMode>
-					block
-					className="w-full"
-					options={[
-						{ label: '智能识别填写', value: 'smart' },
-						{ label: '手动填写', value: 'manual' },
-					]}
-					value={activeFillMode}
-					onChange={(v) => syncFormsOnModeChange(v as FillMode)}
-				/>
-			</div>
-			) : null}
-			<div className="flex items-center justify-center gap-2.5 mb-5">
-				<div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--color-primary-bg)]">
-					<InboxOutlined className="text-[var(--color-primary)] text-sm" />
-				</div>
-				<h2 className="text-base md:text-lg font-semibold text-[var(--text-primary)]">
-					填写报销申请单
-				</h2>
-			</div>
+					<div className="rf-workbench-hd">
+						<h2>填写报销单</h2>
+						{showFillModeSwitcher ? (
+							<div className="rf-mode-switch" role="tablist" aria-label="填写方式">
+								<button
+									type="button"
+									role="tab"
+									aria-selected={activeFillMode === 'smart'}
+									className={activeFillMode === 'smart' ? 'is-active' : undefined}
+									onClick={() => syncFormsOnModeChange('smart')}
+								>
+									智能识别
+								</button>
+								<button
+									type="button"
+									role="tab"
+									aria-selected={activeFillMode === 'manual'}
+									className={activeFillMode === 'manual' ? 'is-active' : undefined}
+									onClick={() => syncFormsOnModeChange('manual')}
+								>
+									手动填写
+								</button>
+							</div>
+						) : null}
+					</div>
 
 			{activeFillMode === 'smart' ? (
-			<div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-[420px]">
-				<div className="lg:w-[min(100%,380px)] shrink-0 flex flex-col gap-3 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto">
+			<div className="rf-workbench-body">
+				<div className="rf-upload-pane">
+					<p className="rf-pane-label">上传凭证</p>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -1342,27 +1405,28 @@ export default function ReimbursementForm() {
 							setDragOver(false);
 							if (e.dataTransfer.files?.length) addLocalFiles(e.dataTransfer.files);
 						}}
-						className={[
-							'flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-10 cursor-pointer transition-colors select-none min-h-[200px]',
-							dragOver
-								? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)]'
-								: 'border-[var(--border-color-hover)] bg-[var(--bg-page)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)]',
-						].join(' ')}
+						className={['rf-dropzone', dragOver ? 'is-dragover' : ''].filter(Boolean).join(' ')}
 					>
-						<InboxOutlined className="text-4xl text-[var(--color-primary)] mb-2" />
-						<p className="text-sm font-medium text-[var(--text-primary)] text-center">拖拽发票或凭证到此处</p>
-						<p className="text-xs text-[var(--text-secondary)] mt-1 text-center">
-							或点击选择文件（支持图片、PDF，可多选）
-						</p>
+						<div className="rf-dropzone-icon">
+							<InboxOutlined />
+						</div>
+						<p className="rf-dropzone-title">拖拽或点击上传</p>
+						<p className="rf-dropzone-desc">支持图片、PDF，可一次多选</p>
 					</div>
 
 					{fileList.length > 0 && (
-						<div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-							{fileList.map((file) => (
+						<div className="rf-file-list">
+							{fileList.map((file, index) => (
 								<LocalFileRow
 									key={file.uid}
 									file={file}
 									blobUrl={smartFileBlobUrlRef.current.get(file.uid) ?? null}
+									status={resolveFileRecogUiStatus(
+										index + 1,
+										extracting,
+										fileSlotSummaries,
+										extractCompletedIndexes,
+									)}
 									onPreview={openPreview}
 									onRemove={() => {
 										setFileList((prev) => {
@@ -1377,7 +1441,7 @@ export default function ReimbursementForm() {
 					)}
 
 					{fileList.length > 0 && (
-						<div className="flex gap-2">
+						<div className="rf-upload-actions">
 							<Button
 								type="primary"
 								block
@@ -1387,23 +1451,32 @@ export default function ReimbursementForm() {
 							>
 								{extracting ? '识别中...' : '开始识别'}
 							</Button>
-							<Button block disabled={extracting} onClick={handleClearAllFiles}>
+							<Button
+								block
+								disabled={extracting}
+								onClick={() => fileInputRef.current?.click()}
+							>
+								继续添加文件
+							</Button>
+							<Button block type="link" danger disabled={extracting} onClick={handleClearAllFiles}>
 								一键清空
 							</Button>
 						</div>
 					)}
 				</div>
 
-				<div className="flex-1 min-w-0 flex flex-col">
+				<div className="rf-form-pane">
 					<Spin spinning={extracting} tip="正在识别报销类型并提取字段...">
 						<Form
 							form={smartForm}
 							layout="vertical"
 							onFinish={onFinish}
 							size="middle"
-							className="min-h-[200px]"
+							className="min-h-[200px] flex flex-col gap-3"
 						>
-							<div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
+							<div>
+								<p className="rf-pane-label mb-2">基本信息</p>
+								<div className="rf-base-block">
 								<Form.Item
 									label="申请人"
 									name="applicant"
@@ -1449,31 +1522,44 @@ export default function ReimbursementForm() {
 									/>
 								</Form.Item>
 
-								<Form.Item label="收款账户">
+								<Form.Item label="收款账户" className="md:col-span-2">
 									<Input value={user?.payment_account ?? ''} disabled placeholder="请先在登录后填写收款账户" />
 								</Form.Item>
+								</div>
 							</div>
 
-							<div className="mb-3 text-sm text-[var(--text-secondary)] min-h-[22px]">
-								{categoryLoading ? (
-									<span>正在加载报销类型配置…</span>
-								) : fileList.length === 0 ? (
-									<span className="text-[var(--text-tertiary)]">
-										上传文件后点击「开始识别」按钮
-									</span>
-								) : extracting ? (
-									<span>正在识别票据…</span>
-								) : fileSlotSummaries.length === 0 ? (
-									<span className="text-[var(--text-tertiary)]">点击左侧「开始识别」按钮开始识别</span>
-								) : (
-									<span>
-										各文件的识别状态与明细见下方分区（按上传顺序）
-									</span>
-								)}
+							<div
+								className={`rf-status-bar${
+									fileList.length === 0 || (!extracting && fileSlotSummaries.length === 0)
+										? ' is-muted'
+										: ''
+								}`}
+							>
+								<span>
+									{categoryLoading
+										? '正在加载报销类型配置…'
+										: fileList.length === 0
+											? '上传文件后点击「开始识别」'
+											: extracting
+												? '正在识别票据…'
+												: fileSlotSummaries.length === 0
+													? '点击左侧「开始识别」开始识别'
+													: `已识别 ${fileSlotSummaries.length}/${fileList.length} 个文件 · 可先核对下方明细`}
+								</span>
+								{extracting ||
+								(fileList.length > 0 &&
+									fileSlotSummaries.length > 0 &&
+									fileSlotSummaries.length < fileList.length) ? (
+									<span className="rf-file-badge rf-file-badge--extracting">进行中</span>
+								) : fileList.length > 0 &&
+								  fileSlotSummaries.length > 0 &&
+								  fileSlotSummaries.length === fileList.length ? (
+									<span className="rf-file-badge rf-file-badge--matched">已完成</span>
+								) : null}
 							</div>
 
 							{invoiceDuplicateAnalysis.issues.length > 0 && !extracting && (
-								<div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700 space-y-2">
+								<div className="rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700 space-y-2">
 									{invoiceDuplicateAnalysis.issues.map((issue) => (
 										<div key={`${issue.kind}-${issue.invoiceNumber}-${issue.fileIndices.join('-')}`}>
 											{issue.kind === 'uploaded'
@@ -1498,38 +1584,36 @@ export default function ReimbursementForm() {
 								fileSlotFields.size > 0 && (
 									<Form.List name="lineItems">
 										{(fields) => (
-											<div className="space-y-10">
+											<div className="rf-recog-list">
+												<p className="rf-pane-label">识别结果</p>
 												{fileSlotSummaries.map((s) => {
 													const slotFile = fileList[s.fileIndex - 1];
+													const slotBlobUrl = resolveFileSlotBlobUrl(
+														fileList,
+														s.fileIndex,
+														smartFileBlobUrlRef.current,
+													);
 													const fieldEntries = fields.filter(
 														({ name }) =>
 															lineItemMeta[Number(name)]?.fileIndex === s.fileIndex,
 													);
 													return (
-														<section
-															key={s.fileIndex}
-															className="space-y-4 pb-2 border-b border-[var(--border-color)] last:border-b-0 last:pb-0"
-														>
+														<section key={s.fileIndex} className="rf-recog-card">
 															<FileSlotRecognitionBanner
 																s={s}
 																file={slotFile}
-																blobUrl={
-																	slotFile
-																		? (smartFileBlobUrlRef.current.get(slotFile.uid) ?? null)
-																		: null
-																}
+																blobUrl={slotBlobUrl}
 																onPreview={openPreview}
 																types={types}
 																onSelectType={handleManualTypeSelect}
 															/>
+															<div className="rf-recog-card-body">
 															{getSmartSummaryOverLimit(s) != null && (
-																<div className="-mt-1">
-																	<span className="text-xs text-orange-500">
-																		报销上限金额为 {getSmartSummaryOverLimit(s)} 元，超出属于超额报销
-																	</span>
-																</div>
+																<span className="text-xs text-orange-500">
+																	报销上限金额为 {getSmartSummaryOverLimit(s)} 元，超出属于超额报销
+																</span>
 															)}
-															<div className="space-y-4">
+															<div className="space-y-3">
 																{fieldEntries.map(({ key, name }) => {
 																	const idx = Number(name);
 																	const meta = lineItemMeta[idx];
@@ -1542,17 +1626,13 @@ export default function ReimbursementForm() {
 																		? (smartFileBlobUrlRef.current.get(detailFile.uid) ?? null)
 																		: null;
 																	return (
-																		<Card
-																			key={key}
-																			size="small"
-																			title={title}
-																			className="border-gray-200"
-																			extra={
-																				detailBlobUrl ? (
-																					<Button
-																						type="link"
-																						size="small"
-																						icon={<EyeOutlined />}
+																		<div key={key} className="rf-detail-block">
+																			<div className="rf-detail-hd">
+																				<h4>{title}</h4>
+																				{detailBlobUrl ? (
+																					<button
+																						type="button"
+																						className="rf-text-link"
 																						onClick={() =>
 																							openPreview(
 																								detailBlobUrl,
@@ -1560,11 +1640,10 @@ export default function ReimbursementForm() {
 																							)
 																						}
 																					>
-																						预览
-																					</Button>
-																				) : null
-																			}
-																		>
+																						预览票据
+																					</button>
+																				) : null}
+																			</div>
 																			<div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
 																				{(fileSlotFields.get(s.fileIndex) ?? selectedFields).map((field, fIdx) => (
 																					<DynamicField
@@ -1574,9 +1653,10 @@ export default function ReimbursementForm() {
 																					/>
 																				))}
 																			</div>
-																		</Card>
+																		</div>
 																	);
 																})}
+															</div>
 															</div>
 														</section>
 													);
@@ -1590,36 +1670,35 @@ export default function ReimbursementForm() {
 								!extracting &&
 								fileSlotSummaries.length > 0 &&
 								fileSlotFields.size === 0 && (
-									<div className="space-y-10">
+									<div className="rf-recog-list">
+										<p className="rf-pane-label">识别结果</p>
 										{fileSlotSummaries.map((s) => {
 											const slotFile = fileList[s.fileIndex - 1];
+											const slotBlobUrl = resolveFileSlotBlobUrl(
+												fileList,
+												s.fileIndex,
+												smartFileBlobUrlRef.current,
+											);
 											return (
-											<section
-												key={s.fileIndex}
-												className="space-y-3 pb-2 border-b border-[var(--border-color)] last:border-b-0 last:pb-0"
-											>
+											<section key={s.fileIndex} className="rf-recog-card">
 												<FileSlotRecognitionBanner
 													s={s}
 													file={slotFile}
-													blobUrl={
-														slotFile
-															? (smartFileBlobUrlRef.current.get(slotFile.uid) ?? null)
-															: null
-													}
+													blobUrl={slotBlobUrl}
 													onPreview={openPreview}
 													types={types}
 													onSelectType={handleManualTypeSelect}
 												/>
+												<div className="rf-recog-card-body">
 												{getSmartSummaryOverLimit(s) != null && (
-													<div className="-mt-1">
-														<span className="text-xs text-orange-500">
-															报销上限金额为 {getSmartSummaryOverLimit(s)} 元，超出属于超额报销
-														</span>
-													</div>
+													<span className="text-xs text-orange-500">
+														报销上限金额为 {getSmartSummaryOverLimit(s)} 元，超出属于超额报销
+													</span>
 												)}
-												<p className="text-sm text-[var(--text-tertiary)] pl-0.5">
+												<p className="text-sm text-[var(--text-tertiary)]">
 													该文件未识别到可填写的动态字段，请尝试更清晰的票据或联系管理员。
 												</p>
+												</div>
 											</section>
 											);
 										})}
@@ -1630,13 +1709,14 @@ export default function ReimbursementForm() {
 								!extracting &&
 								fileSlotSummaries.length === 0 &&
 								selectedFields.length === 0 && (
-									<p className="text-sm text-[var(--text-tertiary)] py-4">
+									<p className="text-sm text-[var(--text-tertiary)] py-2">
 										未识别到动态字段，请尝试更清晰的票据或联系管理员。
 									</p>
 								)}
 
-							<Form.Item label="备注" name="remark">
-								<TextArea rows={3} placeholder="其他补充说明（选填）" />
+							<div className="rf-submit-wrap">
+							<Form.Item label="备注（选填）" name="remark">
+								<TextArea rows={3} placeholder="其他补充说明" />
 							</Form.Item>
 
 							<Form.Item className="mt-2 mb-0">
@@ -1654,17 +1734,19 @@ export default function ReimbursementForm() {
 										smartForm.submit();
 									}}
 								>
-									提交报销申请
+									提交报销
 								</Button>
 								{smartSubmitBlockReason ? (
 									<p className="text-xs text-amber-600 mt-2 mb-0">{smartSubmitBlockReason}</p>
 								) : null}
 							</Form.Item>
+							</div>
 						</Form>
 					</Spin>
 				</div>
 			</div>
 			) : (
+				<div className="rf-form-pane rf-form-pane--manual">
 				<Form
 					form={manualForm}
 					layout="vertical"
@@ -1673,7 +1755,8 @@ export default function ReimbursementForm() {
 					className="min-h-[200px] w-full flex flex-col flex-1"
 					initialValues={{ manualItems: [{ categoryId: '', fields: {} }] }}
 				>
-					<div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
+					<p className="rf-pane-label mb-2">基本信息</p>
+					<div className="rf-base-block mb-4">
 						<Form.Item
 							label="申请人"
 							name="applicant"
@@ -1719,7 +1802,7 @@ export default function ReimbursementForm() {
 							/>
 						</Form.Item>
 
-						<Form.Item label="收款账户">
+						<Form.Item label="收款账户" className="md:col-span-2">
 							<Input value={user?.payment_account ?? ''} disabled placeholder="请先在登录后填写收款账户" />
 						</Form.Item>
 					</div>
@@ -1796,6 +1879,7 @@ export default function ReimbursementForm() {
 						)}
 					</Form.List>
 
+					<div className="rf-submit-wrap">
 					<Form.Item className="mt-2 mb-0">
 						<Button
 							type="primary"
@@ -1817,7 +1901,9 @@ export default function ReimbursementForm() {
 							<p className="text-xs text-amber-600 mt-2 mb-0">{manualSubmitBlockReason}</p>
 						) : null}
 					</Form.Item>
+					</div>
 				</Form>
+				</div>
 			)}
 
 			<FilePreviewModal
@@ -1830,6 +1916,6 @@ export default function ReimbursementForm() {
 			/>
 				</>
 			)}
-		</Card>
+		</div>
 	);
 }

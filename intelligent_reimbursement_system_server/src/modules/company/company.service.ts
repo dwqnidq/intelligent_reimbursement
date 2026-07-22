@@ -39,13 +39,14 @@ export class CompanyService {
     return this.companyModel.find().sort({ name: 1 });
   }
 
-  async create(userId: string, dto: CreateCompanyDto) {
-    await this.assertAdmin(userId);
+  /** 任意登录用户可创建（完善资料页可选新增）；改/删仍仅管理员 */
+  async create(_userId: string, dto: CreateCompanyDto) {
     const name = dto.name.trim();
+    if (!name) throw new BadRequestException('公司名称不能为空');
     const exists = await this.companyModel.findOne({ name });
     if (exists) throw new ConflictException('公司名称已存在');
     const doc = await this.companyModel.create({ name });
-    return { id: doc._id };
+    return { id: String(doc._id) };
   }
 
   async update(userId: string, id: string, dto: UpdateCompanyDto) {

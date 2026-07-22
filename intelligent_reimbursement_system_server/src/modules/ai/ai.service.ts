@@ -1,5 +1,6 @@
 import { Injectable, Logger, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { buildNonFinalSsePayload } from './ai-stream-chunk.util';
 import { GrpcClientService } from './grpc-client.service';
 import { inspect } from 'node:util';
 
@@ -190,12 +191,10 @@ export class AiService {
             }
             subscriber.complete();
           } else {
-            // 流式 token，直接推给前端
             subscriber.next({
-              data: JSON.stringify({
-                done: false,
-                token: chunk.token,
+              data: buildNonFinalSsePayload({
                 node: chunk.node,
+                token: chunk.token,
               }),
             } as MessageEvent);
           }

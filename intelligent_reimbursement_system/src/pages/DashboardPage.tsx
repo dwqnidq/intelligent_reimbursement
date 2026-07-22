@@ -14,8 +14,8 @@ import { getRecordAmount } from '../utils/reimbursementAmount'
 import DashboardCharts from '../components/DashboardCharts'
 
 const statStyles = [
-  { borderColor: '#0f766e', iconBg: '#ccfbf1', iconColor: '#0f766e' },
-  { borderColor: '#22c55e', iconBg: '#ecfdf5', iconColor: '#22c55e' },
+  { borderColor: '#1d4ed8', iconBg: '#dbeafe', iconColor: '#1d4ed8' },
+  { borderColor: '#22c55e', iconBg: '#dcfce7', iconColor: '#22c55e' },
   { borderColor: '#f59e0b', iconBg: '#fffbeb', iconColor: '#f59e0b' },
   { borderColor: '#ef4444', iconBg: '#fef2f2', iconColor: '#ef4444' },
 ]
@@ -115,8 +115,8 @@ export default function DashboardPage() {
       <div
         className="rounded-2xl px-6 py-5 flex items-center justify-between"
         style={{
-          background: "linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)",
-          boxShadow: "0 4px 20px rgba(15, 118, 110, 0.25)",
+          background: "linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #3b82f6 100%)",
+          boxShadow: "0 4px 20px rgba(29, 78, 216, 0.25)",
         }}
       >
         <div>

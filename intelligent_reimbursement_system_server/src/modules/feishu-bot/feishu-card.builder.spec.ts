@@ -352,6 +352,17 @@ describe('feishu-card.builder', () => {
     expect(body).toContain('approval_approve');
     expect(body).toContain('approval_reject');
     expect(body).toContain('ar-1');
+    expect(body).toContain('"name":"reject_reason"');
+    expect(body).toContain('"required":true');
+    expect(body).toContain('"form_action_type":"submit"');
+    expect(body).toContain('"name":"approval_form"');
+    // 通过按钮不走表单 submit
+    const approveIdx = body.indexOf('"action":"approval_approve"');
+    const rejectIdx = body.indexOf('"action":"approval_reject"');
+    expect(approveIdx).toBeGreaterThan(-1);
+    expect(rejectIdx).toBeGreaterThan(-1);
+    const approveSlice = body.slice(Math.max(0, approveIdx - 200), approveIdx + 80);
+    expect(approveSlice).not.toContain('form_action_type');
   });
 
   it('buildApprovalSkippedCard approved keeps summary and disables buttons', () => {
@@ -387,5 +398,21 @@ describe('feishu-card.builder', () => {
     expect(body).toContain('已驳回');
     expect(body).toContain('李四');
     expect(body).toContain('"disabled":true');
+  });
+
+  it('does not duplicate 金额 when detail already contains it', () => {
+    const card = buildApprovalPendingCard({
+      approvalRecordId: 'ar-2',
+      ...approvalSummary,
+      detailFields: [
+        { label: '金额', value: '100' },
+        { label: '出差事由', value: '客户拜访' },
+      ],
+    });
+    const body = JSON.stringify(card);
+    const amountLabelCount = body.split('**金额**：').length - 1;
+    expect(amountLabelCount).toBe(1);
+    expect(body).toContain('**金额**：100');
+    expect(body).not.toContain('1280.50');
   });
 });

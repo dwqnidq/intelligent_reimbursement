@@ -51,20 +51,53 @@
 }
 
 .reimbursement-filter {
-  padding: 14px;
-  border-bottom: 1px solid var(--border-color);
-  background: linear-gradient(180deg, #fafbfc, #f4f7fa);
   flex-shrink: 0;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fafbfc, #f4f7fa);
 }
 
-.reimbursement-filter .ant-form-item {
-  margin-bottom: 8px;
+.reimbursement-filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  row-gap: 8px;
 }
 
-.reimbursement-filter-actions {
+.reimbursement-filter-form .ant-form-item {
+  margin-inline-end: 0;
+  margin-bottom: 0;
+}
+
+.reimbursement-filter-select {
+  width: 140px;
+  min-width: 140px;
+}
+
+.reimbursement-filter-select--wide {
+  width: 200px;
+  min-width: 200px;
+}
+
+.reimbursement-filter-amount {
+  width: 110px;
+}
+
+.reimbursement-filter-date {
+  width: 240px;
+}
+
+.reimbursement-filter-actions .ant-form-item-control-input-content {
   display: flex;
   gap: 8px;
-  margin-top: 4px;
+}
+
+.dark .reimbursement-filter {
+  background: linear-gradient(180deg, #1e293b, #0f172a);
+  border-color: var(--border-color);
 }
 
 .reimbursement-card-list {

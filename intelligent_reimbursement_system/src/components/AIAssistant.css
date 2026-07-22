@@ -283,7 +283,7 @@
 }
 
 .message.assistant .file-kind-icon-wrap-image {
-  background: #ecfdf5;
+  background: #dbeafe;
 }
 
 .message.assistant .file-kind-icon-wrap-pdf {
@@ -295,7 +295,7 @@
 }
 
 .file-kind-icon-image {
-  color: #0f766e;
+  color: #1d4ed8;
 }
 
 .file-kind-icon-pdf {
@@ -395,7 +395,7 @@
 }
 
 .pending-file-chip .file-kind-icon-wrap-image {
-  background: #ecfdf5;
+  background: #dbeafe;
 }
 
 .pending-file-chip .file-kind-icon-wrap-pdf {
@@ -508,8 +508,8 @@
 }
 
 .chat-input input:focus {
-  border-color: var(--color-primary, #0f766e);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  border-color: var(--color-primary, #1d4ed8);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
 }
 
 .chat-input input:disabled {
@@ -541,30 +541,30 @@
   height: 42px;
   border-radius: 10px;
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  color: var(--color-primary, #0f766e);
+  color: var(--color-primary, #1d4ed8);
   border: 1px solid var(--border-color, #e2e8f0);
   font-size: 17px;
 }
 
 .chat-input button.attach-btn:hover:not(:disabled) {
-  background: var(--color-primary-bg, #ecfdf5);
-  color: var(--color-primary, #0f766e);
-  border-color: #99f6e4;
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  background: var(--color-primary-bg, #dbeafe);
+  color: var(--color-primary, #1d4ed8);
+  border-color: #bfdbfe;
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
 }
 
 .chat-input button.send-btn {
   width: 42px;
   height: 42px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+  background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
   color: white;
-  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.28);
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.28);
 }
 
 .chat-input button.send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%);
-  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.32);
+  background: linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.32);
 }
 
 .chat-input button:disabled {
@@ -709,7 +709,7 @@
 .dark .chat-input button.attach-btn {
   background: linear-gradient(180deg, #1a1f2e 0%, #141824 100%);
   border-color: var(--border-color, #2a2d3e);
-  color: #5eead4;
+  color: #93c5fd;
 }
 
 .dark .result-card {

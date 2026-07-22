@@ -18,7 +18,7 @@ import { getCompanyNameOptions } from "../api/company";
 import type { CompanyNameOption } from "../api/company";
 
 export default function ProfilePage() {
-  const { user, setAuth, token, refreshToken, permissions, menus } = useAuthStore();
+  const { user, setAuth, token, refreshToken, permissions, roles, menus } = useAuthStore();
   const [pwdForm] = Form.useForm();
   const [basicForm] = Form.useForm();
   const [profileForm] = Form.useForm();
@@ -76,6 +76,7 @@ export default function ProfilePage() {
           refreshToken,
           user: { ...user!, avatar: res.avatar },
           permissions,
+          roles,
           menus,
         });
         message.success("头像已更新");
@@ -124,6 +125,7 @@ export default function ProfilePage() {
         refreshToken,
         user: res.user,
         permissions,
+        roles,
         menus,
       });
       message.success("基本信息已更新");
@@ -149,6 +151,7 @@ export default function ProfilePage() {
         refreshToken,
         user: res.user,
         permissions,
+        roles,
         menus,
       });
       message.success("公司与收款账户已更新");

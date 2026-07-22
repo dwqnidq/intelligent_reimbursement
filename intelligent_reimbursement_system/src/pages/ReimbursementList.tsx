@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tag, Button, Descriptions, Modal, Form, Input, Select, InputNumber, DatePicker, message, Avatar, Tooltip, Pagination, Empty, Spin, TreeSelect, Progress } from 'antd'
 import { SearchOutlined, ReloadOutlined, DownloadOutlined, FileTextOutlined, UserOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, SwapOutlined, LoadingOutlined, RightOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
-import { getReimbursementTreeList, getReimbursementTypes, updateReimbursementStatus, withdrawReimbursement, exportReimbursementsExcelWithProgress } from '../api/reimbursement'
+import { useSearchParams } from 'react-router-dom'
+import { getReimbursementTreeList, getReimbursementTypes, getReimbursementById, updateReimbursementStatus, withdrawReimbursement, exportReimbursementsExcelWithProgress } from '../api/reimbursement'
 import type { ReimbursementRecord, ReimbursementListParams, ReimbursementTreeGroup, ReimbursementType } from '../api/reimbursement'
 import { getApprovalRecordByReimbursement, approveRecord, rejectRecord, transferRecord } from '../api/approvalRecord'
 import type { ApprovalRecordItem } from '../api/approvalRecord'
@@ -11,6 +12,7 @@ import type { Employee } from '../api/employee'
 import { getDepartments, buildDepartmentTreeOptions } from '../api/department'
 import { useAuthStore } from '../store/useAuthStore'
 import FilePreviewModal from '../components/FilePreviewModal'
+import { pickDetailAfterListRefresh } from '../utils/detailPanelSync'
 import './ReimbursementList.css'
 
 const statusMap: Record<string, { color: string; label: string; banner: string }> = {
@@ -134,7 +136,11 @@ function ReimbursementRecordCard({
   const company = record.company_name?.trim() || '-'
   const applicant = record.applicant_name?.trim()
   return (
-    <div className={`rb-card rb-card--${getBannerClass(record.status)}${active ? ' active' : ''}`} onClick={onClick}>
+    <div
+      className={`rb-card rb-card--${getBannerClass(record.status)}${active ? ' active' : ''}`}
+      data-reimbursement-id={record._id}
+      onClick={onClick}
+    >
       <div className={`rb-card-banner ${getBannerClass(record.status)}`}>
         <span className="rb-card-tag">{status?.label ?? record.status}</span>
         <h3 title={record.category}>{record.category || '未分类'}</h3>
@@ -157,7 +163,7 @@ function ReimbursementRecordCard({
         <div className="rb-card-footer">
           <span>{record.apply_date ?? '-'}</span>
           <span className="attach">
-            <FileTextOutlined style={{ fontSize: 10 }} />
+            <FileTextOutlined style={{ fontSize: 12 }} />
             {record.attachments.length ? `${record.attachments.length} 个附件` : '无附件'}
           </span>
           {record.is_over_limit && <span style={{ color: '#ea580c', fontWeight: 600 }}>超额</span>}
@@ -196,6 +202,10 @@ export default function ReimbursementList() {
   const [page, setPage] = useState(1)
   const [size] = useState(10)
   const [loading, setLoading] = useState(false)
+  const [searchParams] = useSearchParams()
+  const deepLinkId = (searchParams.get('id') ?? '').trim() || null
+  const deepLinkHandledRef = useRef<string | null>(null)
+  const deepLinkScrolledRef = useRef<string | null>(null)
   const canApprove = useAuthStore((s) => s.hasPermission('reimbursement:approve'))
   const currentUser = useAuthStore((s) => s.user)
 
@@ -307,15 +317,88 @@ export default function ReimbursementList() {
   }, [canApprove])
 
   useEffect(() => {
-    if (displayRecords.length === 0) {
+    const decision = pickDetailAfterListRefresh(detailItem, displayRecords, {
+      allowFallbackToFirst: !deepLinkId,
+    })
+    if (decision.action === 'clear') {
       setDetailItem(null)
       return
     }
-    const currentStillExists = detailItem && displayRecords.some((r) => r._id === detailItem._id)
-    if (!currentStillExists) {
-      selectRecord(displayRecords[0])
+    if (decision.action === 'select') {
+      selectRecord(decision.record)
     }
-  }, [displayRecords])
+  }, [displayRecords, deepLinkId])
+
+  useEffect(() => {
+    if (!deepLinkId) {
+      deepLinkHandledRef.current = null
+      return
+    }
+    if (loading) return
+    if (deepLinkHandledRef.current === deepLinkId) return
+
+    const fromList = displayRecords.find((r) => r._id === deepLinkId)
+    if (fromList) {
+      deepLinkHandledRef.current = deepLinkId
+      selectRecord(fromList)
+      return
+    }
+
+    let cancelled = false
+    getReimbursementById(deepLinkId)
+      .then((record) => {
+        if (cancelled) return
+        deepLinkHandledRef.current = deepLinkId
+        selectRecord(record)
+      })
+      .catch(() => {
+        if (cancelled) return
+        deepLinkHandledRef.current = deepLinkId
+        message.error('无法打开该报销记录，可能已被删除或无权查看')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deepLinkId, displayRecords, loading])
+
+  /** 深链打开后：展开所属批次，并将左侧卡片滚入可视区 */
+  useEffect(() => {
+    if (!deepLinkId) {
+      deepLinkScrolledRef.current = null
+      return
+    }
+    if (detailItem?._id !== deepLinkId) return
+    if (deepLinkScrolledRef.current === deepLinkId) return
+    if (!displayRecords.some((r) => r._id === deepLinkId)) return
+
+    const batch = batchViews.find((b) =>
+      b.records.some((r) => r._id === deepLinkId),
+    )
+    if (batch && collapsedBatchIds.has(batch.id)) {
+      setCollapsedBatchIds((prev) => {
+        const next = new Set(prev)
+        next.delete(batch.id)
+        return next
+      })
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-reimbursement-id="${CSS.escape(deepLinkId)}"]`,
+      )
+      if (!(el instanceof HTMLElement)) return
+      deepLinkScrolledRef.current = deepLinkId
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [
+    deepLinkId,
+    detailItem?._id,
+    displayRecords,
+    batchViews,
+    collapsedBatchIds,
+  ])
 
   const handleSearch = () => {
     const params = buildFilterParams(filterForm.getFieldsValue())
@@ -502,66 +585,72 @@ export default function ReimbursementList() {
         )}
       </div>
 
-      <div className="reimbursement-split">
-        {/* 左侧：筛选 + 卡片列表 */}
-        <aside className="reimbursement-sidebar">
-          <div className="reimbursement-filter">
-            <Form form={filterForm} layout="vertical" size="small">
-              <Form.Item name="category" className="mb-2">
-                <Select placeholder="费用类型" options={categoryOptions} allowClear />
+      <div className="reimbursement-filter">
+        <Form form={filterForm} layout="inline" size="small" className="reimbursement-filter-form">
+          <Form.Item name="category">
+            <Select placeholder="费用类型" options={categoryOptions} allowClear className="reimbursement-filter-select" />
+          </Form.Item>
+          <Form.Item name="status">
+            <Select
+              placeholder="状态（可多选）"
+              allowClear
+              mode="multiple"
+              maxTagCount="responsive"
+              className="reimbursement-filter-select"
+              options={[
+                { label: '审核中', value: 'pending' },
+                { label: '已通过', value: 'approved' },
+                { label: '已驳回', value: 'rejected' },
+              ]}
+            />
+          </Form.Item>
+          {canApprove && (
+            <>
+              <Form.Item name="employee_ids">
+                <Select
+                  mode="multiple"
+                  placeholder="员工（可多选）"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  maxTagCount="responsive"
+                  options={employeeOptions}
+                  className="reimbursement-filter-select reimbursement-filter-select--wide"
+                />
               </Form.Item>
-              <Form.Item name="status" className="mb-2">
-                <Select placeholder="状态（可多选）" allowClear mode="multiple"
-                  options={[
-                    { label: '审核中', value: 'pending' },
-                    { label: '已通过', value: 'approved' },
-                    { label: '已驳回', value: 'rejected' },
-                  ]} />
+              <Form.Item name="department_ids">
+                <TreeSelect
+                  treeData={departmentTreeOptions}
+                  placeholder="部门（含子部门，可多选）"
+                  allowClear
+                  treeCheckable
+                  showCheckedStrategy={TreeSelect.SHOW_ALL}
+                  treeDefaultExpandAll
+                  maxTagCount="responsive"
+                  className="reimbursement-filter-select reimbursement-filter-select--wide"
+                />
               </Form.Item>
-              {canApprove && (
-                <>
-                  <Form.Item name="employee_ids" className="mb-2">
-                    <Select
-                      mode="multiple"
-                      placeholder="员工（可多选）"
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                      options={employeeOptions}
-                    />
-                  </Form.Item>
-                  <Form.Item name="department_ids" className="mb-2">
-                    <TreeSelect
-                      treeData={departmentTreeOptions}
-                      placeholder="部门（含子部门，可多选）"
-                      allowClear
-                      treeCheckable
-                      showCheckedStrategy={TreeSelect.SHOW_ALL}
-                      treeDefaultExpandAll
-                      maxTagCount="responsive"
-                      className="w-full"
-                    />
-                  </Form.Item>
-                </>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <Form.Item name="amount_min" className="mb-2">
-                  <InputNumber placeholder="最小金额" min={0} className="w-full" />
-                </Form.Item>
-                <Form.Item name="amount_max" className="mb-2">
-                  <InputNumber placeholder="最大金额" min={0} className="w-full" />
-                </Form.Item>
-              </div>
-              <Form.Item name="dateRange" className="mb-2">
-                <DatePicker.RangePicker className="w-full" />
-              </Form.Item>
-              <div className="reimbursement-filter-actions">
-                <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} block>查询</Button>
-                <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
-              </div>
-            </Form>
-          </div>
+            </>
+          )}
+          <Form.Item name="amount_min">
+            <InputNumber placeholder="最小金额" min={0} className="reimbursement-filter-amount" />
+          </Form.Item>
+          <Form.Item name="amount_max">
+            <InputNumber placeholder="最大金额" min={0} className="reimbursement-filter-amount" />
+          </Form.Item>
+          <Form.Item name="dateRange">
+            <DatePicker.RangePicker className="reimbursement-filter-date" />
+          </Form.Item>
+          <Form.Item className="reimbursement-filter-actions">
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>查询</Button>
+            <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+          </Form.Item>
+        </Form>
+      </div>
 
+      <div className="reimbursement-split">
+        {/* 左侧：卡片列表 */}
+        <aside className="reimbursement-sidebar">
           <div className="reimbursement-card-list">
             {loading ? (
               <div className="flex justify-center py-12"><Spin /></div>
@@ -594,7 +683,7 @@ export default function ReimbursementList() {
             </div>
           )}
           {total > 0 && total <= size && (
-            <div className="reimbursement-pagination text-xs text-[var(--text-tertiary)]">
+            <div className="reimbursement-pagination text-sm text-[var(--text-tertiary)]">
               共 {total} 批
             </div>
           )}

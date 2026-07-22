@@ -20,6 +20,7 @@ interface RefreshSessionPayload {
   token: string;
   refreshToken: string;
   permissions?: string[];
+  roles?: string[];
   menus?: MenuItem[];
   user?: UserInfo;
 }
@@ -82,6 +83,7 @@ async function doRefreshToken() {
     token: payload.token as string,
     refreshToken: payload.refreshToken as string,
     permissions: payload.permissions as string[] | undefined,
+    roles: payload.roles as string[] | undefined,
     menus: payload.menus as MenuItem[] | undefined,
     user: payload.user as UserInfo | undefined,
   };
@@ -131,6 +133,7 @@ axiosInstance.interceptors.response.use(
             refreshToken: refreshed.refreshToken,
             user: refreshed.user ?? currentState.user!,
             permissions: refreshed.permissions ?? currentState.permissions,
+            roles: refreshed.roles ?? currentState.roles,
             menus: refreshed.menus ?? currentState.menus,
           });
         }

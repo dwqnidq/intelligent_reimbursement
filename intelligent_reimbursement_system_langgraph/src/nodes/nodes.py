@@ -219,38 +219,96 @@ def ocr_extract_node(state: GraphState) -> GraphState:
 # ─────────────────────────────────────────────
 
 
-def reimbursement_form_extract_node(state: GraphState) -> GraphState:
+def _file_display_name(file_data: str) -> str:
+    name = file_data.split("::", 1)[0] if "::" in file_data else file_data
+    return (name or "").strip() or "未命名文件"
+
+
+def _progress_event(
+    done: int,
+    total: int,
+    stage: str,
+    message: str,
+    file_index: Optional[int] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    payload: Dict[str, Any] = {
+        "done": max(0, int(done)),
+        "total": max(0, int(total)),
+        "stage": stage,
+        "message": message,
+    }
+    if file_index is not None and int(file_index) > 0:
+        payload["file_index"] = int(file_index)
+    return ("progress", payload)
+
+
+def _iter_form_extract_steps(state: GraphState):
+    """发票识别 / 智能填单的核心逐文件执行流程（假定 state 已含 ocr_texts）。
+
+    每完成一个文件（成功或失败）yield ("progress", {done,total,stage,message,file_index?})；
+    结束时 yield ("result", final_state)，其中 final_state 含 node + result。
+    """
     files = state.get("files", [])
     ocr_texts = state.get("ocr_texts", [])
     input_text = state.get("input") or ""
     want_form_extract = REIMBURSEMENT_FORM_EXTRACT_TRIGGER in input_text
-    print(f"[票据识别/填单节点] 开始处理，文件数: {len(files)}，填单模式: {want_form_extract}")
+    total_files = len(files)
+    print(f"[票据识别/填单节点] 开始处理，文件数: {total_files}，填单模式: {want_form_extract}")
     _logger.info(
         "[节点 reimbursement_form_extract] files=%d 填单模式=%s",
-        len(files),
+        total_files,
         want_form_extract,
     )
     if not files:
-        return {
-            **state,
-            "node": "reimbursement_form_extract",
-            "result": [],
-            "step_count": state.get("step_count", 0) + 1,
-        }
+        yield (
+            "result",
+            {
+                **state,
+                "node": "reimbursement_form_extract",
+                "result": [],
+                "step_count": state.get("step_count", 0) + 1,
+            },
+        )
+        return
 
     if not want_form_extract:
-        invoice_bools = [
-            _recognize_single_file(f, ocr_text=ocr_texts[i] if i < len(ocr_texts) else None)
-            for i, f in enumerate(files)
-        ]
+        invoice_bools: List[bool] = []
+        for i, f in enumerate(files):
+            name = _file_display_name(f)
+            yield _progress_event(
+                i,
+                total_files,
+                "extract",
+                f"发票判定中 · 第 {i + 1}/{total_files} 张 · {name}",
+            )
+            invoice_bools.append(
+                _recognize_single_file(f, ocr_text=ocr_texts[i] if i < len(ocr_texts) else None)
+            )
+            yield _progress_event(
+                i + 1,
+                total_files,
+                "match",
+                f"发票判定完成 · 第 {i + 1}/{total_files} 张 · {name}",
+                file_index=i + 1,
+            )
         print(f"[票据识别] 发票判定结果: {invoice_bools}")
         _logger.info("[票据识别] 发票判定结果: %s", invoice_bools)
-        return {
-            **state,
-            "node": "invoice_recognition",
-            "result": invoice_bools,
-            "step_count": state.get("step_count", 0) + 1,
-        }
+        yield _progress_event(
+            total_files,
+            total_files,
+            "done",
+            "识别完成，正在整理结果…",
+        )
+        yield (
+            "result",
+            {
+                **state,
+                "node": "invoice_recognition",
+                "result": invoice_bools,
+                "step_count": state.get("step_count", 0) + 1,
+            },
+        )
+        return
 
     types_payload = fetch_active_reimbursement_types()
     if not types_payload:
@@ -268,22 +326,58 @@ def reimbursement_form_extract_node(state: GraphState) -> GraphState:
                 }
             ]
         ]
+        yield _progress_event(
+            total_files,
+            total_files,
+            "done",
+            "未读取到启用的报销类型，正在整理结果…",
+        )
     else:
         print(f"[报销表单提取] 已从数据库加载 {len(types_payload)} 条报销类型")
         _logger.info("[报销表单提取] 已从数据库加载 %d 条报销类型", len(types_payload))
-        total_files = len(files)
         file_failures: List[str] = []
+        done = 0
 
         if total_files <= 1:
             print(f"[报销表单提取] 单文件模式，开始处理...")
+            name = _file_display_name(files[0])
+            yield _progress_event(
+                0,
+                total_files,
+                "extract",
+                f"字段提取中 · 第 1/{total_files} 张 · {name}",
+            )
             ocr_text = ocr_texts[0] if ocr_texts else None
             _, batch, fail = _form_extract_one_file(0, files[0], types_payload, total_files, ocr_text=ocr_text)
             accumulated = [batch]
             if fail:
                 file_failures.append(fail)
+                done += 1
+                yield _progress_event(
+                    done,
+                    total_files,
+                    "match",
+                    f"提取失败 · 第 1/{total_files} 张 · {name}",
+                    file_index=1,
+                )
+            else:
+                done += 1
+                yield _progress_event(
+                    done,
+                    total_files,
+                    "match",
+                    f"类型匹配中 · 第 1/{total_files} 张 · {name}",
+                    file_index=1,
+                )
         else:
             workers = min(_FORM_EXTRACT_MAX_PARALLEL, total_files)
             print(f"[报销表单提取] 多文件并行模式，{total_files} 个文件，{workers} 个并发")
+            yield _progress_event(
+                0,
+                total_files,
+                "extract",
+                f"字段提取中 · 共 {total_files} 张",
+            )
             results_by_idx: Dict[int, Tuple[List[Dict[str, Any]], Optional[str]]] = {}
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 future_to_idx = {
@@ -298,16 +392,37 @@ def reimbursement_form_extract_node(state: GraphState) -> GraphState:
                     for idx, file_data in enumerate(files)
                 }
                 for fut in as_completed(future_to_idx):
+                    fail_msg: Optional[str] = None
                     try:
                         idx, batch, fail = fut.result()
                         results_by_idx[idx] = (batch, fail)
+                        fail_msg = fail
                         print(f"[报销表单提取] 文件 {idx+1} 处理完成，明细数: {len(batch)}")
                     except Exception as e:
-                        orig_idx = future_to_idx[fut]
-                        short_name = files[orig_idx].split("::", 1)[0] if "::" in files[orig_idx] else files[orig_idx]
-                        print(f"[报销表单提取] 文件 {orig_idx+1}「{short_name}」处理异常: {e}")
-                        _logger.exception("[报销表单提取] 文件 %d 并行处理异常", orig_idx + 1)
-                        results_by_idx[orig_idx] = ([], f"{short_name}: {str(e)[:120]}")
+                        idx = future_to_idx[fut]
+                        short_name = _file_display_name(files[idx])
+                        print(f"[报销表单提取] 文件 {idx+1}「{short_name}」处理异常: {e}")
+                        _logger.exception("[报销表单提取] 文件 %d 并行处理异常", idx + 1)
+                        fail_msg = f"{short_name}: {str(e)[:120]}"
+                        results_by_idx[idx] = ([], fail_msg)
+                    name = _file_display_name(files[idx])
+                    done += 1
+                    if fail_msg:
+                        yield _progress_event(
+                            done,
+                            total_files,
+                            "match",
+                            f"提取失败 · 第 {idx + 1}/{total_files} 张 · {name}",
+                            file_index=idx + 1,
+                        )
+                    else:
+                        yield _progress_event(
+                            done,
+                            total_files,
+                            "match",
+                            f"类型匹配中 · 第 {idx + 1}/{total_files} 张 · {name}",
+                            file_index=idx + 1,
+                        )
             accumulated = [results_by_idx[i][0] for i in range(total_files)]
             for i in range(total_files):
                 err = results_by_idx[i][1]
@@ -346,13 +461,64 @@ def reimbursement_form_extract_node(state: GraphState) -> GraphState:
                 sum(1 for f in ff if "value" in f),
                 min(_FORM_EXTRACT_MAX_PARALLEL, total_files) if total_files > 1 else 1,
             )
+        yield _progress_event(
+            total_files,
+            total_files,
+            "done",
+            "识别完成，正在整理结果…",
+        )
 
-    return {
-        **state,
-        "node": "reimbursement_form_extract",
-        "result": result,
-        "step_count": state.get("step_count", 0) + 1,
-    }
+    yield (
+        "result",
+        {
+            **state,
+            "node": "reimbursement_form_extract",
+            "result": result,
+            "step_count": state.get("step_count", 0) + 1,
+        },
+    )
+
+
+def iter_form_extract_with_progress(state: GraphState):
+    """供 stream 边执行边推送进度：prepare → OCR → 逐文件阶段 → result。
+
+    若 state 未包含 ocr_texts（如直接从路由状态调用）则内部先跑 OCR；
+    图节点已通过 ocr_extract 预填 ocr_texts 时不会重复识别。
+    """
+    files = state.get("files", [])
+    total_files = len(files)
+    yield _progress_event(
+        0,
+        total_files,
+        "prepare",
+        f"准备识别… 共 {total_files} 个文件",
+    )
+    if "ocr_texts" not in state:
+        if total_files > 0:
+            yield _progress_event(
+                0,
+                total_files,
+                "ocr",
+                f"OCR 识别中 · 共 {total_files} 张",
+            )
+        state = ocr_extract_node(state)
+        if total_files > 0:
+            yield _progress_event(
+                0,
+                total_files,
+                "ocr",
+                f"OCR 完成 · 共 {total_files} 张",
+            )
+    yield from _iter_form_extract_steps(state)
+
+
+def reimbursement_form_extract_node(state: GraphState) -> GraphState:
+    """消费进度 generator，仅取最终 result state，保证同步 invoke / ExecuteGraph 行为不变。"""
+    final_state: Optional[GraphState] = None
+    for item in iter_form_extract_with_progress(state):
+        if item[0] == "result":
+            final_state = item[1]
+    return final_state if final_state is not None else state
 
 
 # ─────────────────────────────────────────────

@@ -132,6 +132,18 @@ export class ReimbursementController {
   }
 
   @ApiOperation({
+    summary:
+      '获取单条报销单详情（申请人、审批权限用户、或该单审批流中的审批人）',
+  })
+  @Get(':id')
+  findOne(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ): Promise<unknown> {
+    return this.service.getOne(userId, id);
+  }
+
+  @ApiOperation({
     summary: '提交报销申请',
     description:
       '请求体为 JSON 数组；数组每一项包含 applicant_name、category、apply_date、attachments、details。每个元素内的 details 数组中每一条写入一条报销记录。',

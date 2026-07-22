@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   ConflictException,
   UnauthorizedException,
   ForbiddenException,
@@ -29,9 +30,10 @@ import {
   isPhoneLike,
   normalizePhone,
 } from '../../common/phone.util';
-import {
-  shouldBackfillDepartmentManager,
-} from './feishu-department-manager.util';
+import { shouldBackfillDepartmentManager } from './feishu-department-manager.util';
+import { resolveAuthUserDepartment } from './resolve-auth-user-department.util';
+import { shouldAssignEmployeeDepartment } from './should-assign-employee-department.util';
+import { decideApprovalRoleChange } from './decide-approval-role-change.util';
 
 interface PopulatedPermission {
   _id: string;
@@ -46,12 +48,15 @@ interface PopulatedMenu {
 }
 
 interface PopulatedRole {
+  name: string;
   permissions: PopulatedPermission[];
   menus: PopulatedMenu[];
 }
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(FeishuUser.name) private feishuUserModel: Model<FeishuUser>,
@@ -66,6 +71,62 @@ export class UserService {
     return this.jwtService.sign(payload);
   }
 
+  /**
+   * 按启用部门负责人关系对账 approval 角色：是负责人则确保有，否则移除。
+   * 失败不阻断登录/会话。
+   */
+  private async reconcileApprovalRole(userId: string): Promise<void> {
+    try {
+      const approvalRole = await this.roleModel
+        .findOne({ name: 'approval' })
+        .select('_id')
+        .lean();
+      if (!approvalRole?._id) {
+        this.logger.warn('未找到 approval 角色，跳过审批员角色对账');
+        return;
+      }
+      const approvalRoleId = String(approvalRole._id);
+
+      const employee = await this.employeeModel
+        .findOne({ uid: userId })
+        .select('_id')
+        .lean();
+      const isManager = employee?._id
+        ? Boolean(
+            await this.deptModel.exists({
+              manager_id: String(employee._id),
+              status: 1,
+            }),
+          )
+        : false;
+
+      const user = await this.userModel.findById(userId).select('roles').lean();
+      if (!user) return;
+
+      const hasApprovalRole = (user.roles ?? [])
+        .map((roleId) => String(roleId))
+        .includes(approvalRoleId);
+      const decision = decideApprovalRoleChange({ isManager, hasApprovalRole });
+
+      if (decision === 'add') {
+        await this.userModel.updateOne(
+          { _id: userId },
+          { $addToSet: { roles: approvalRoleId } },
+        );
+      } else if (decision === 'remove') {
+        await this.userModel.updateOne(
+          { _id: userId },
+          { $pull: { roles: approvalRoleId } },
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `审批员角色对账失败 userId=${userId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+  }
+
   private signRefreshToken(payload: { id: string; username: string }) {
     return this.jwtService.sign(
       { ...payload, type: 'refresh' },
@@ -73,7 +134,29 @@ export class UserService {
     );
   }
 
-  private toAuthUser(user: User) {
+  private async resolveEmployeeDepartmentName(
+    userId: string,
+  ): Promise<string> {
+    const employee = await this.employeeModel
+      .findOne({ uid: userId })
+      .select('dept_id')
+      .lean();
+    const deptId = employee?.dept_id ? String(employee.dept_id) : '';
+    if (!deptId) return '';
+    const department = await this.deptModel
+      .findById(deptId)
+      .select('name')
+      .lean();
+    return (department?.name ?? '').trim();
+  }
+
+  private async toAuthUser(user: User) {
+    const department = resolveAuthUserDepartment({
+      employeeDepartmentName: await this.resolveEmployeeDepartmentName(
+        String(user._id),
+      ),
+      userDepartment: user.department,
+    });
     return {
       id: user._id,
       username: user.username,
@@ -84,6 +167,7 @@ export class UserService {
       payment_account: user.payment_account ?? '',
       company_id: user.company_id ?? '',
       company_name: user.company_name ?? '',
+      department,
     };
   }
 
@@ -180,30 +264,44 @@ export class UserService {
       throw new ForbiddenException('账号已被禁用');
     }
 
+    const userId = String(user._id);
+    await this.reconcileApprovalRole(userId);
+
+    const sessionUser = await this.userModel.findById(userId).populate({
+      path: 'roles',
+      populate: [{ path: 'permissions' }, { path: 'menus' }],
+    });
+    if (!sessionUser) {
+      throw new UnauthorizedException('账号或密码错误');
+    }
+
+    const populatedRoles = sessionUser.roles as unknown as PopulatedRole[];
     const permissionMap = new Map<string, PopulatedPermission>();
     const menuMap = new Map<string, PopulatedMenu>();
-    for (const role of user.roles as unknown as PopulatedRole[]) {
+    for (const role of populatedRoles) {
       for (const p of role.permissions) permissionMap.set(String(p._id), p);
       for (const m of role.menus) menuMap.set(String(m._id), m);
     }
 
     const permissions = [...permissionMap.values()].map((p) => p.name);
     const menus = this.buildMenuTree([...menuMap.values()]);
+    const roles = populatedRoles.map((r) => r.name).filter(Boolean);
 
     const token = this.signAccessToken({
-      id: String(user._id),
-      username: user.username,
+      id: userId,
+      username: sessionUser.username,
     });
     const refreshToken = this.signRefreshToken({
-      id: String(user._id),
-      username: user.username,
+      id: userId,
+      username: sessionUser.username,
     });
 
     return {
       token,
       refreshToken,
-      user: this.toAuthUser(user),
+      user: await this.toAuthUser(sessionUser),
       permissions,
+      roles,
       menus,
     };
   }
@@ -241,7 +339,7 @@ export class UserService {
       { new: true },
     );
     if (!user) throw new NotFoundException('用户不存在');
-    return { user: this.toAuthUser(user) };
+    return { user: await this.toAuthUser(user) };
   }
 
   async updatePaymentAccount(userId: string, dto: UpdatePaymentAccountDto) {
@@ -258,7 +356,7 @@ export class UserService {
     await user.save();
     return {
       payment_account: user.payment_account,
-      user: this.toAuthUser(user),
+      user: await this.toAuthUser(user),
     };
   }
 
@@ -286,7 +384,7 @@ export class UserService {
       company_id: user.company_id,
       company_name: user.company_name,
       payment_account: user.payment_account,
-      user: this.toAuthUser(user),
+      user: await this.toAuthUser(user),
     };
   }
 
@@ -334,7 +432,10 @@ export class UserService {
   private async getFeishuTenantToken(): Promise<string | null> {
     const appId = process.env.FEISHU_APP_ID;
     const appSecret = process.env.FEISHU_APP_SECRET;
-    if (!appId || !appSecret) return null;
+    if (!appId || !appSecret) {
+      console.error('飞书应用凭证缺失，无法获取 tenant_access_token');
+      return null;
+    }
     const res = await fetch(
       'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
       {
@@ -343,8 +444,28 @@ export class UserService {
         body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
       },
     );
-    const data = (await res.json()) as { code: number; tenant_access_token?: string };
-    return data.code === 0 ? data.tenant_access_token ?? null : null;
+    const data = (await res.json()) as {
+      code: number;
+      msg?: string;
+      tenant_access_token?: string;
+    };
+    if (data.code !== 0) {
+      console.error('获取飞书 tenant_access_token 失败:', {
+        code: data.code,
+        msg: data.msg,
+      });
+      return null;
+    }
+    return data.tenant_access_token ?? null;
+  }
+
+  private async findOpenIdByUserId(userId: string): Promise<string | undefined> {
+    const feishuUser = await this.feishuUserModel
+      .findOne({ uid: userId })
+      .select('open_id')
+      .lean();
+    const openId = feishuUser?.open_id?.trim();
+    return openId || undefined;
   }
 
   private async findEmployeeIdByFeishuOpenId(
@@ -419,6 +540,7 @@ export class UserService {
     );
     const deptData = (await deptRes.json()) as {
       code: number;
+      msg?: string;
       data?: {
         department?: {
           name?: string;
@@ -428,7 +550,14 @@ export class UserService {
         };
       };
     };
-    if (deptData.code !== 0) return undefined;
+    if (deptData.code !== 0) {
+      console.error('获取飞书部门详情失败:', {
+        openDepartmentId,
+        code: deptData.code,
+        msg: deptData.msg,
+      });
+      return undefined;
+    }
 
     const department = deptData.data?.department;
     if (!department?.name) return undefined;
@@ -502,10 +631,22 @@ export class UserService {
     );
     const userDetail = (await userDetailRes.json()) as {
       code: number;
+      msg?: string;
       data?: { user?: { department_ids?: string[] } };
     };
-    if (userDetail.code !== 0) return undefined;
+    if (userDetail.code !== 0) {
+      console.error('获取飞书用户部门失败:', {
+        openId,
+        code: userDetail.code,
+        msg: userDetail.msg,
+      });
+      return undefined;
+    }
     const departmentIds = userDetail.data?.user?.department_ids ?? [];
+    if (departmentIds.length === 0) {
+      console.warn('飞书用户无部门:', { openId });
+      return undefined;
+    }
     return departmentIds[0];
   }
 
@@ -516,17 +657,26 @@ export class UserService {
     mobile: string;
     avatar_url: string;
   }): Promise<void> {
-    const { userId, openId, name, mobile, avatar_url } = params;
+    const { userId, name, mobile, avatar_url } = params;
     const normalizedMobile = normalizePhone(mobile);
     const displayName = name || '飞书用户';
 
+    // 已存在员工：uid → feishu_users.open_id；登录场景 params.openId 作为兜底
+    const openId =
+      (await this.findOpenIdByUserId(userId)) || params.openId?.trim() || '';
+    if (!openId) {
+      console.error('无法解析飞书 open_id，跳过部门同步:', { userId });
+      return;
+    }
+
     let deptId: string | undefined;
-    let deptName: string | undefined;
     let openDepartmentId: string | undefined;
     let tenantToken: string | null = null;
     try {
       tenantToken = await this.getFeishuTenantToken();
-      if (tenantToken) {
+      if (!tenantToken) {
+        console.error('无 tenant_access_token，跳过部门同步:', { userId, openId });
+      } else {
         openDepartmentId = await this.fetchFeishuUserPrimaryDepartmentOpenId(
           openId,
           tenantToken,
@@ -536,33 +686,16 @@ export class UserService {
             openDepartmentId,
             tenantToken,
           );
-          if (deptId) {
-            const department = await this.deptModel.findById(deptId).select('name');
-            deptName = department?.name;
-          }
         }
       }
     } catch (err) {
       console.error('获取飞书部门信息失败:', err);
     }
 
-    const existingDept = deptName
-      ? await this.deptModel.findOne({ name: deptName })
-      : null;
-    const existingEmp = await this.employeeModel.findOne({
-      $or: [{ uid: userId }, { name: displayName }],
-    });
+    // 仅按 uid 关联，避免同名员工互相覆盖
+    const existingEmp = await this.employeeModel.findOne({ uid: userId });
 
-    const hasEmployee = !!existingEmp;
-
-    if (hasEmployee && existingEmp && normalizedMobile && existingEmp.phone !== normalizedMobile) {
-      existingEmp.phone = normalizedMobile;
-      await existingEmp.save();
-    }
-
-    deptId = existingDept ? String(existingDept._id) : deptId;
-
-    if (!hasEmployee) {
+    if (!existingEmp) {
       const empCount = await this.employeeModel.countDocuments();
       const employeeNo = `FE${String(empCount + 1).padStart(5, '0')}`;
       await this.employeeModel.create({
@@ -575,6 +708,24 @@ export class UserService {
         uid: userId,
         ...(deptId ? { dept_id: deptId } : {}),
       });
+    } else {
+      let dirty = false;
+      if (normalizedMobile && existingEmp.phone !== normalizedMobile) {
+        existingEmp.phone = normalizedMobile;
+        dirty = true;
+      }
+      if (
+        shouldAssignEmployeeDepartment({
+          existingDeptId: existingEmp.dept_id,
+          resolvedDeptId: deptId,
+        })
+      ) {
+        existingEmp.dept_id = deptId as string;
+        dirty = true;
+      }
+      if (dirty) {
+        await existingEmp.save();
+      }
     }
 
     if (deptId && tenantToken && openDepartmentId) {
@@ -761,7 +912,7 @@ export class UserService {
       { upsert: true, returnDocument: 'after' },
     );
 
-    // 6. 同步飞书部门与员工（已存在则跳过，缺失则创建）
+    // 6. 同步飞书部门与员工（新建或补写已有员工的 dept_id）
     try {
       await this.syncFeishuDepartmentAndEmployee({
         userId: String(user._id),
@@ -782,22 +933,23 @@ export class UserService {
   }
 
   async getSessionByToken(userId: string) {
-    const user = await this.userModel
-      .findById(userId)
-      .populate({
-        path: 'roles',
-        populate: [{ path: 'permissions' }, { path: 'menus' }],
-      });
+    await this.reconcileApprovalRole(userId);
+    const user = await this.userModel.findById(userId).populate({
+      path: 'roles',
+      populate: [{ path: 'permissions' }, { path: 'menus' }],
+    });
     if (!user) throw new NotFoundException('用户不存在');
 
+    const populatedRoles = user.roles as unknown as PopulatedRole[];
     const permissionMap = new Map<string, PopulatedPermission>();
     const menuMap = new Map<string, PopulatedMenu>();
-    for (const role of user.roles as unknown as PopulatedRole[]) {
+    for (const role of populatedRoles) {
       for (const p of role.permissions) permissionMap.set(String(p._id), p);
       for (const m of role.menus) menuMap.set(String(m._id), m);
     }
     const permissions = [...permissionMap.values()].map((p) => p.name);
     const menus = this.buildMenuTree([...menuMap.values()]);
+    const roles = populatedRoles.map((r) => r.name).filter(Boolean);
     const token = this.signAccessToken({
       id: String(user._id),
       username: user.username,
@@ -809,8 +961,9 @@ export class UserService {
     return {
       token,
       refreshToken,
-      user: this.toAuthUser(user),
+      user: await this.toAuthUser(user),
       permissions,
+      roles,
       menus,
     };
   }

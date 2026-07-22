@@ -251,6 +251,56 @@ export class ApprovalNotifyService {
     });
   }
 
+  /**
+   * 撤回后：作废旧飞书卡 → 清理投递/站内幂等 → 向第一节点重新 notifyNodeEntered。
+   * 失败不抛出（safeRun）。
+   */
+  async reopenAfterWithdraw(approvalRecordId: string): Promise<void> {
+    await this.safeRun(`reopenAfterWithdraw:${approvalRecordId}`, async () => {
+      const record = await this.approvalModel.findById(approvalRecordId);
+      if (!record || record.status !== 'pending') return;
+
+      const reimb = await this.loadReimbursementSummary(record.record_id);
+      const resolve: ApprovalCardResolve = { kind: 'withdrawn' };
+      const cardPayload = buildApprovalSkippedCard({ resolve, ...reimb });
+
+      const keyNeedle = `ar:${approvalRecordId}`;
+      const deliveries = await this.deliveryModel.find({
+        idempotency_key: { $regex: keyNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+      });
+
+      if (this.feishuApi.isEnabled()) {
+        for (const delivery of deliveries) {
+          if (!delivery.feishu_message_id) continue;
+          try {
+            await this.feishuApi.updateInteractiveCard(
+              delivery.feishu_message_id,
+              cardPayload,
+            );
+            delivery.status = 'updated';
+            await delivery.save();
+          } catch (err) {
+            this.logger.warn(
+              `撤回作废飞书卡失败 key=${delivery.idempotency_key}`,
+              err as Error,
+            );
+          }
+        }
+      }
+
+      await this.deliveryModel.deleteMany({
+        idempotency_key: {
+          $regex: keyNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+        },
+      });
+      await this.notificationService.deleteByIdempotencyKeyRegex(
+        new RegExp(keyNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      );
+
+      await this.notifyNodeEntered(approvalRecordId);
+    });
+  }
+
   private async updatePendingFeishuCards(
     approvalRecordId: string,
     nodeId: string,

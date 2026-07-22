@@ -74,6 +74,7 @@ import {
 import { ApprovalRecordService } from '../approval-record/approval-record.service';
 import { ApprovalNotifyService } from '../approval-notify/approval-notify.service';
 import { PromiseChainLock } from './feishu-promise-chain-lock.util';
+import { extractApprovalRejectReason } from './feishu-approval-reject-reason.util';
 
 const DEFAULT_MAX_FILE_BYTES = 20 * 1024 * 1024;
 const DEFAULT_MAX_ZIP_TOTAL_BYTES = 100 * 1024 * 1024;
@@ -343,9 +344,17 @@ export class FeishuBotService {
         };
       }
       if (actionName === 'approval_reject') {
+        const rejectReason = extractApprovalRejectReason(body);
+        if (!rejectReason) {
+          return {
+            ok: false,
+            toastContent: '请填写驳回原因',
+          };
+        }
         const { meta } = await this.approvalRecordService.reject(
           approvalRecordId,
           String(feishuUser.uid),
+          rejectReason,
         );
         const resolve = {
           kind: 'rejected' as const,

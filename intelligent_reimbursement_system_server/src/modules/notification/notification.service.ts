@@ -35,6 +35,14 @@ export class NotificationService {
     }
   }
 
+  /** 删除某审批记录相关站内通知幂等键，便于撤回后重新推送 */
+  async deleteByIdempotencyKeyRegex(pattern: RegExp): Promise<number> {
+    const res = await this.notificationModel.deleteMany({
+      idempotency_key: { $regex: pattern },
+    });
+    return res.deletedCount ?? 0;
+  }
+
   async listMine(userId: string, unreadOnly = false) {
     const filter: Record<string, unknown> = { user_id: userId };
     if (unreadOnly) filter.read = false;

@@ -6,6 +6,7 @@ import { login } from "../api/user";
 import type { LoginParams } from "../api/user";
 import { useAuthStore } from "../store/useAuthStore";
 import { resolvePostLoginPath } from "../utils/authNavigation";
+import feishuLogo from "../assets/feishu-logo.png";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function LoginPage() {
         refreshToken: res.refreshToken,
         user: res.user,
         permissions: res.permissions,
+        roles: res.roles ?? [],
         menus: res.menus,
       });
       message.success("登录成功");
@@ -38,15 +40,20 @@ export default function LoginPage() {
     }
   };
 
+  const handleFeishuLogin = () => {
+    const appId = import.meta.env.VITE_FEISHU_APP_ID;
+    const redirectUri = import.meta.env.VITE_REDIRECT_URI;
+    window.location.href = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?app_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  };
+
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4 relative"
       style={{
         background:
-          "radial-gradient(1200px 600px at 10% -10%, #d1fae5 0%, transparent 55%), radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%), linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%)",
+          "radial-gradient(1200px 600px at 10% -10%, #dbeafe 0%, transparent 55%), radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 50%), linear-gradient(180deg, #f1f5f9 0%, #eef2f7 100%)",
       }}
     >
-      {/* 装饰圆 - 右上 */}
       <div
         style={{
           position: "absolute",
@@ -55,11 +62,11 @@ export default function LoginPage() {
           width: "450px",
           height: "450px",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(15,118,110,0.18) 0%, transparent 70%)",
+          background:
+            "radial-gradient(circle, rgba(29, 78, 216,0.18) 0%, transparent 70%)",
           pointerEvents: "none",
         }}
       />
-      {/* 装饰圆 - 左下 */}
       <div
         style={{
           position: "absolute",
@@ -68,21 +75,21 @@ export default function LoginPage() {
           width: "500px",
           height: "500px",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(15,118,110,0.14) 0%, transparent 70%)",
+          background:
+            "radial-gradient(circle, rgba(29, 78, 216,0.14) 0%, transparent 70%)",
           pointerEvents: "none",
         }}
       />
 
       <div className="w-full max-w-sm relative" style={{ zIndex: 1 }}>
-        {/* Logo */}
         <div className="text-center mb-8">
           <div
             className="inline-flex items-center justify-center rounded-2xl mb-5"
             style={{
               width: 56,
               height: 56,
-              background: "linear-gradient(145deg, #0d9488, #0f766e)",
-              boxShadow: "0 8px 30px rgba(15, 118, 110, 0.3)",
+              background: "linear-gradient(145deg, #2563eb, #1d4ed8)",
+              boxShadow: "0 8px 30px rgba(29, 78, 216, 0.3)",
             }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -95,7 +102,10 @@ export default function LoginPage() {
               />
             </svg>
           </div>
-          <h1 className="text-xl font-bold text-[var(--text-primary)]" style={{ letterSpacing: "-0.02em" }}>
+          <h1
+            className="text-xl font-bold text-[var(--text-primary)]"
+            style={{ letterSpacing: "-0.02em" }}
+          >
             报销管理系统
           </h1>
           <p className="text-sm text-[var(--text-secondary)] mt-2">
@@ -103,10 +113,12 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* 表单卡片 */}
         <div
           className="bg-[var(--bg-card)] rounded-2xl p-8 border border-[var(--border-color)]"
-          style={{ boxShadow: "0 4px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)" }}
+          style={{
+            boxShadow:
+              "0 4px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)",
+          }}
         >
           <Form form={form} layout="vertical" onFinish={onFinish} size="large">
             <Form.Item
@@ -148,31 +160,33 @@ export default function LoginPage() {
               </Button>
             </Form.Item>
           </Form>
+
+          <div className="flex items-center gap-3 my-5">
+            <div className="flex-1 h-px bg-[var(--border-color)]" />
+            <span className="text-xs text-[var(--text-tertiary)]">或</span>
+            <div className="flex-1 h-px bg-[var(--border-color)]" />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleFeishuLogin}
+            className="w-full flex items-center justify-center gap-2.5 rounded-xl border border-[var(--border-color)] bg-white hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+            style={{ height: 44 }}
+          >
+            <img
+              src={feishuLogo}
+              alt="飞书"
+              width={22}
+              height={22}
+              style={{ display: "block" }}
+            />
+            <span className="text-[15px] font-semibold text-[var(--text-primary)]">
+              使用飞书账号登录
+            </span>
+          </button>
         </div>
 
-        <p className="text-center text-sm text-[var(--text-secondary)] mt-7">
-          没有账号？
-          <a
-            className="text-[var(--color-primary)] hover:opacity-80 ml-1 cursor-pointer transition-opacity font-medium"
-            onClick={() => navigate("/register")}
-          >
-            立即注册
-          </a>
-        </p>
-        <p className="text-center text-sm text-[var(--text-secondary)] mt-3">
-          <a
-            className="text-[var(--color-primary)] hover:opacity-80 cursor-pointer transition-opacity font-medium"
-            onClick={() => {
-              const appId = import.meta.env.VITE_FEISHU_APP_ID;
-              const redirectUri = import.meta.env.VITE_REDIRECT_URI;
-              console.log('APPID', appId, 'REDIRECT_URI', redirectUri);
-              window.location.href = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?app_id=${appId}&redirect_uri=${redirectUri}`;
-            }}
-          >
-            使用飞书账号登录
-          </a>
-        </p>
-        <p className="text-center text-xs text-[var(--text-tertiary)] mt-2">
+        <p className="text-center text-xs text-[var(--text-tertiary)] mt-4">
           飞书首次登录后，可在个人中心设置密码再使用账号登录
         </p>
         <p className="text-center text-xs text-[var(--text-tertiary)] mt-8">
