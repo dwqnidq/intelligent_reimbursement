@@ -17,6 +17,8 @@ services:
       context: ./intelligent_reimbursement_system_langgraph
     container_name: langgraph
     restart: unless-stopped
+    # PaddleOCR 多进程池依赖 /dev/shm；Docker 默认 64MB 易导致 worker 崩溃 (BrokenProcessPool)
+    shm_size: "1gb"
     env_file:
       - ./intelligent_reimbursement_system_langgraph/.env
     environment:

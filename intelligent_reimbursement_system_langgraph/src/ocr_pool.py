@@ -5,6 +5,7 @@ import atexit
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import List, Optional
 
 _logger = logging.getLogger(__name__)
@@ -96,8 +97,17 @@ def prewarm_ocr_pool() -> None:
     _logger.info("[OCR pool] 已预热 %d 个 OCR worker", workers)
 
 
+def _map_with_pool(files: List[str]) -> List[str]:
+    pool = get_ocr_pool()
+    return list(pool.map(_worker_ocr, files))
+
+
 def ocr_files(files: List[str]) -> List[str]:
-    """按输入顺序 OCR；多文件且并行>1 时走进程池。"""
+    """按输入顺序 OCR；多文件且并行>1 时走进程池。
+
+    子进程异常退出导致 BrokenProcessPool 时：销毁并重建池重试一次；
+    仍失败则回退主进程串行，避免整池报废后服务持续不可用。
+    """
     if not files:
         return []
 
@@ -107,10 +117,26 @@ def ocr_files(files: List[str]) -> List[str]:
     if len(files) == 1 or workers <= 1:
         return [ocr_single_file(f) for f in files]
 
-    pool = get_ocr_pool()
     _logger.info(
         "[OCR pool] 并行识别 files=%d workers=%d",
         len(files),
         workers,
     )
-    return list(pool.map(_worker_ocr, files))
+    try:
+        return _map_with_pool(files)
+    except BrokenProcessPool as first_err:
+        _logger.warning(
+            "[OCR pool] 进程池已损坏，尝试重建后重试: %s",
+            first_err,
+        )
+        _shutdown_pool()
+        try:
+            return _map_with_pool(files)
+        except BrokenProcessPool as retry_err:
+            _logger.error(
+                "[OCR pool] 重建后仍失败，回退主进程串行: %s",
+                retry_err,
+                exc_info=True,
+            )
+            _shutdown_pool()
+            return [ocr_single_file(f) for f in files]
