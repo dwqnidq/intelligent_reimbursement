@@ -6,11 +6,16 @@ import {
   ApprovalFlow,
   ApprovalFlowSchema,
 } from '../../schemas/approval_flow.schema';
+import {
+  Department,
+  DepartmentSchema,
+} from '../../schemas/department.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: ApprovalFlow.name, schema: ApprovalFlowSchema },
+      { name: Department.name, schema: DepartmentSchema },
     ]),
   ],
   controllers: [ApprovalFlowController],

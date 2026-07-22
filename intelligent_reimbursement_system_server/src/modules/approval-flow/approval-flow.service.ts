@@ -1,15 +1,26 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ApprovalFlow } from '../../schemas/approval_flow.schema';
+import { Department } from '../../schemas/department.schema';
 import { CreateApprovalFlowDto } from './dto/create-approval-flow.dto';
 import { UpdateApprovalFlowDto } from './dto/update-approval-flow.dto';
+import {
+  collectEnabledDepartmentManagerIds,
+  findNonManagerApproverIds,
+} from './department-manager-approver.util';
 
 @Injectable()
 export class ApprovalFlowService {
   constructor(
     @InjectModel(ApprovalFlow.name)
     private flowModel: Model<ApprovalFlow>,
+    @InjectModel(Department.name)
+    private deptModel: Model<Department>,
   ) {}
 
   async findAll() {
@@ -45,10 +56,30 @@ export class ApprovalFlowService {
     });
   }
 
+  /** 审批人必须是启用部门的负责人 */
+  private async assertApproversAreDepartmentManagers(
+    nodes: Array<{ approver_ids: string[] }>,
+  ) {
+    const approverIds = nodes.flatMap((n) => n.approver_ids ?? []);
+    if (approverIds.length === 0) return;
+
+    const departments = await this.deptModel
+      .find({ status: 1 })
+      .select('manager_id status')
+      .lean();
+    const managerIds = collectEnabledDepartmentManagerIds(departments);
+    const invalid = findNonManagerApproverIds(approverIds, managerIds);
+    if (invalid.length > 0) {
+      throw new BadRequestException('审批人必须为部门负责人');
+    }
+  }
+
   async create(dto: CreateApprovalFlowDto, userId: string) {
+    const nodes = this.normalizeNodes(dto.nodes ?? []);
+    await this.assertApproversAreDepartmentManagers(nodes);
     const doc = await this.flowModel.create({
       ...dto,
-      nodes: this.normalizeNodes(dto.nodes ?? []),
+      nodes,
       created_by: userId,
     } as any);
     return { id: doc._id };
@@ -61,6 +92,7 @@ export class ApprovalFlowService {
     const next = { ...dto } as UpdateApprovalFlowDto;
     if (next.nodes) {
       next.nodes = this.normalizeNodes(next.nodes);
+      await this.assertApproversAreDepartmentManagers(next.nodes);
     }
     Object.assign(record, next);
     await record.save();

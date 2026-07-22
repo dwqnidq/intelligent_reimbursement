@@ -56,8 +56,8 @@ import type {
   ApprovalNodeData,
   ApproverDetail,
 } from "../api/approvalFlow";
-import { getEmployees } from "../api/employee";
-import type { Employee } from "../api/employee";
+import { getDepartments, type Department } from "../api/department";
+import { collectDepartmentManagers } from "../utils/departmentManagers";
 import { useAuthStore } from "../store/useAuthStore";
 
 /* ------------------------------------------------------------------ */
@@ -301,10 +301,14 @@ export default function ApprovalFlowManage() {
   // Add approver modal
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addTargetNodeId, setAddTargetNodeId] = useState<string | null>(null);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [deptTree, setDeptTree] = useState<Department[]>([]);
   const [empLoading, setEmpLoading] = useState(false);
   const [empSearch, setEmpSearch] = useState("");
   const [addedEmpIds, setAddedEmpIds] = useState<Set<string>>(new Set());
+  const managers = collectDepartmentManagers(
+    deptTree,
+    empSearch || undefined,
+  );
 
   // Left panel search/filter
   const [flowSearch, setFlowSearch] = useState("");
@@ -336,21 +340,22 @@ export default function ApprovalFlowManage() {
     fetchFlows();
   }, [fetchTypes, fetchFlows]);
 
-  /* ---- Employees for add modal ---- */
+  /* ---- Department managers for add modal ---- */
 
-  const fetchEmployees = useCallback((search?: string) => {
+  const fetchManagers = useCallback(() => {
     setEmpLoading(true);
-    getEmployees({ name: search, page_size: 100 })
-      .then((data) => setEmployees(data?.list ?? []))
-      .catch(() => {})
+    getDepartments({ status: 1, tree: true })
+      .then((data) => setDeptTree(data ?? []))
+      .catch(() => setDeptTree([]))
       .finally(() => setEmpLoading(false));
   }, []);
 
   useEffect(() => {
     if (addModalOpen) {
-      fetchEmployees(empSearch || undefined);
+      setEmpSearch("");
+      fetchManagers();
     }
-  }, [addModalOpen, empSearch, fetchEmployees]);
+  }, [addModalOpen, fetchManagers]);
 
   /* ---- Select a flow ---- */
 
@@ -501,7 +506,7 @@ export default function ApprovalFlowManage() {
 
   const onAddApprover = (empId: string) => {
     if (!addTargetNodeId) return;
-    const emp = employees.find((e) => e._id === empId);
+    const emp = managers.find((e) => e._id === empId);
     if (!emp) return;
 
     const node = nodes.find((n) => n.node_id === addTargetNodeId);
@@ -510,14 +515,13 @@ export default function ApprovalFlowManage() {
       return;
     }
 
+    const primaryDeptName = emp.deptNames.split("、")[0] ?? "";
     const approverDetail: ApproverDetail = {
       _id: emp._id,
       name: emp.name,
       avatar: emp.avatar || "",
       position: emp.position || "",
-      dept_id: emp.dept_id?._id
-        ? { _id: emp.dept_id._id, name: emp.dept_id.name }
-        : { _id: "", name: "" },
+      dept_id: { _id: "", name: primaryDeptName },
     };
 
     setNodes((prev) =>
@@ -835,7 +839,7 @@ export default function ApprovalFlowManage() {
 
       {/* ---- Add Approver Modal ---- */}
       <Modal
-        title="选择审批人"
+        title="选择审批人（仅部门负责人）"
         open={addModalOpen}
         onCancel={() => {
           setAddModalOpen(false);
@@ -846,18 +850,17 @@ export default function ApprovalFlowManage() {
       >
         <div className="mb-3">
           <Input.Search
-            placeholder="搜索员工姓名"
+            placeholder="搜索负责人姓名"
             allowClear
+            value={empSearch}
             onSearch={(v) => setEmpSearch(v)}
-            onChange={(e) => {
-              if (!e.target.value) setEmpSearch("");
-            }}
+            onChange={(e) => setEmpSearch(e.target.value)}
           />
         </div>
         <Spin spinning={empLoading}>
           <List
-            dataSource={employees}
-            locale={{ emptyText: "暂无员工数据" }}
+            dataSource={managers}
+            locale={{ emptyText: "暂无已设置负责人的启用部门" }}
             style={{ maxHeight: 400, overflow: "auto" }}
             renderItem={(emp) => {
               const isAdded = addedEmpIds.has(emp._id);
@@ -890,10 +893,9 @@ export default function ApprovalFlowManage() {
                     }
                     description={
                       <span className="text-xs text-[var(--text-tertiary)]">
-                        {emp.dept_id?.name ?? ""}
-                        {emp.dept_id?.name && emp.position ? " / " : ""}
+                        {emp.deptNames}
+                        {emp.deptNames && emp.position ? " / " : ""}
                         {emp.position ?? ""}
-                        {emp.employee_no ? ` (${emp.employee_no})` : ""}
                       </span>
                     }
                   />
