@@ -1,4 +1,7 @@
-import { buildNonFinalSsePayload } from './ai-stream-chunk.util';
+import {
+  buildNonFinalSsePayload,
+  parseAiProgressToken,
+} from './ai-stream-chunk.util';
 
 describe('buildNonFinalSsePayload', () => {
   it('maps progress token', () => {
@@ -110,6 +113,26 @@ describe('buildNonFinalSsePayload', () => {
       done: false,
       token: '你',
       node: 'chat',
+    });
+  });
+});
+
+describe('parseAiProgressToken', () => {
+  it('parses progress token for non-SSE consumers', () => {
+    const token = JSON.stringify({
+      type: 'progress',
+      progress: {
+        done: 2,
+        total: 5,
+        stage: 'ocr',
+        message: 'OCR 识别中',
+      },
+    });
+    expect(parseAiProgressToken(token)).toEqual({
+      done: 2,
+      total: 5,
+      stage: 'ocr',
+      message: 'OCR 识别中',
     });
   });
 });

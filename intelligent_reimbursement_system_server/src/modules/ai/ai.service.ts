@@ -1,6 +1,10 @@
 import { Injectable, Logger, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { buildNonFinalSsePayload } from './ai-stream-chunk.util';
+import {
+  buildNonFinalSsePayload,
+  parseAiProgressToken,
+  type AiProgressFields,
+} from './ai-stream-chunk.util';
 import { GrpcClientService } from './grpc-client.service';
 import { inspect } from 'node:util';
 
@@ -39,6 +43,50 @@ export class AiService {
     }
     const output = JSON.parse(res.output) as { result?: unknown };
     return output.result ?? output;
+  }
+
+  /**
+   * 流式填单提取：边跑边回调进度（stage/message/done/total），最终返回与
+   * extractReimbursementForm 相同的 result。
+   */
+  async extractReimbursementFormWithProgress(
+    files: string[],
+    onProgress?: (progress: AiProgressFields) => void | Promise<void>,
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const grpcStream = this.grpcClient.streamExecuteGraph({
+        input: '[[reimbursement_form_extract]]',
+        files,
+      });
+
+      grpcStream.subscribe({
+        next: (chunk) => {
+          if (!chunk.is_final) {
+            const progress = parseAiProgressToken(chunk.token);
+            if (progress && onProgress) {
+              void Promise.resolve(onProgress(progress)).catch((err) => {
+                this.logger.warn('识别进度回调失败', err);
+              });
+            }
+            return;
+          }
+          if (!chunk.success) {
+            reject(new Error(chunk.error || '识别失败'));
+            return;
+          }
+          try {
+            const output = JSON.parse(chunk.output) as { result?: unknown };
+            resolve(output.result ?? output);
+          } catch (err) {
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        },
+        error: (err) => {
+          this.logger.error('流式填单提取失败', err);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
+      });
+    });
   }
 
   chatStream(

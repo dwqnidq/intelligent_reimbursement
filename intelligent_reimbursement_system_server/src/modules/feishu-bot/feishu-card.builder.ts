@@ -28,6 +28,8 @@ export type ResultCardItem = {
   invoice_date?: string;
   issuer?: string;
   duplicate?: boolean;
+  /** 可点击预览的附件 URL（七牛等） */
+  attachment_url?: string;
 };
 
 export type SystemTypeOption = { id: string; label: string };
@@ -313,25 +315,42 @@ function appendInvoiceMetaLines(lines: string[], item: ResultCardItem) {
   }
 }
 
-function appendFileLines(lines: string[], fileNames: string[]) {
-  if (fileNames.length === 1) {
-    lines.push(`<font color='grey'>文件</font>　${fileNames[0]}`);
+function formatFileLink(fileName: string, url?: string): string {
+  const name = String(fileName ?? '').trim() || '附件';
+  const href = String(url ?? '').trim();
+  if (href) return `[${name}](${href})`;
+  return name;
+}
+
+function appendFileLines(
+  lines: string[],
+  files: { name: string; url?: string }[],
+) {
+  if (files.length === 1) {
+    lines.push(
+      `<font color='grey'>文件</font>　${formatFileLink(files[0].name, files[0].url)}`,
+    );
     return;
   }
   lines.push(
-    `<font color='grey'>文件（${fileNames.length}）</font>`,
-    fileNames.map((name) => `· ${name}`).join('\n'),
+    `<font color='grey'>文件（${files.length}）</font>`,
+    files
+      .map((f) => `· ${formatFileLink(f.name, f.url)}`)
+      .join('\n'),
   );
 }
 
 function formatDuplicateGroup(group: ResultCardDisplayGroup) {
   const item = group.representative;
-  const fileNames = group.items.map((entry) => entry.file_name);
+  const files = group.items.map((entry) => ({
+    name: entry.file_name,
+    url: entry.attachment_url,
+  }));
   const lines = [
     `**${formatDuplicateItemLabel(item)}**　${formatAmountDisplay(item)}　${groupStatusTag(group)}`,
   ];
   appendInvoiceMetaLines(lines, item);
-  appendFileLines(lines, fileNames);
+  appendFileLines(lines, files);
   return markdown(lines.join('\n'));
 }
 
@@ -340,7 +359,9 @@ function formatMatchedItem(item: ResultCardItem) {
     `**${formatResultItemLabel(item)}**　${formatAmountDisplay(item)}　${statusTag(item)}`,
   ];
   appendInvoiceMetaLines(lines, item);
-  appendFileLines(lines, [item.file_name]);
+  appendFileLines(lines, [
+    { name: item.file_name, url: item.attachment_url },
+  ]);
   return markdown(lines.join('\n'));
 }
 
@@ -349,7 +370,9 @@ function formatUnmatchedItem(item: ResultCardItem) {
     `**${formatResultItemLabel(item)}**　${formatAmountDisplay(item)}　${statusTag(item)}`,
   ];
   appendInvoiceMetaLines(lines, item);
-  appendFileLines(lines, [item.file_name]);
+  appendFileLines(lines, [
+    { name: item.file_name, url: item.attachment_url },
+  ]);
   lines.push(`<font color='grey'>原因</font>　系统中无对应报销类型`);
   return markdown(lines.join('\n'));
 }
@@ -569,22 +592,51 @@ export function buildConfirmCardContent(
   return buildConfirmCard(sessionId, stats, chips, options).card;
 }
 
+const PROGRESS_STAGE_PIPELINE: { id: string; label: string }[] = [
+  { id: 'prepare', label: '准备' },
+  { id: 'ocr', label: 'OCR' },
+  { id: 'extract', label: '提取' },
+  { id: 'match', label: '匹配' },
+  { id: 'done', label: '完成' },
+];
+
+function formatProgressStagePipeline(stage?: string): string {
+  const current = String(stage ?? '').trim().toLowerCase();
+  const idx = PROGRESS_STAGE_PIPELINE.findIndex((s) => s.id === current);
+  return PROGRESS_STAGE_PIPELINE.map((step, i) => {
+    if (idx < 0) {
+      return i === 0
+        ? `**${step.label}**`
+        : `<font color='grey'>${step.label}</font>`;
+    }
+    if (i < idx) return `✅ ${step.label}`;
+    if (i === idx) return `**▶ ${step.label}**`;
+    return `<font color='grey'>${step.label}</font>`;
+  }).join(' → ');
+}
+
 export function buildProgressCard(
   sessionId: string,
   done: number,
   total: number,
   hint?: string,
+  options?: { stage?: string; message?: string },
 ) {
   void sessionId;
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  const stage = options?.stage;
+  const message = options?.message?.trim();
   const statusHint =
-    hint ??
+    message ||
+    hint ||
     (done >= total && total > 0
       ? '识别完成，正在生成结果…'
       : '请稍候，识别完成后会推送结果卡片。');
   const progressLabel =
-    done === 0 && hint?.includes('AI')
-      ? 'AI 识别中…'
+    done === 0 && (hint?.includes('AI') || stage === 'extract' || stage === 'ocr')
+      ? stage === 'ocr'
+        ? 'OCR 识别中…'
+        : 'AI 识别中…'
       : `识别进度 ${percent}%`;
   return {
     msg_type: 'interactive',
@@ -595,6 +647,7 @@ export function buildProgressCard(
       }),
       [
         divText(progressLabel, { size: 'heading-3' }),
+        markdown(formatProgressStagePipeline(stage), { size: 'notation' }),
         markdown(`<font color='grey'>${statusHint}</font>`, { size: 'notation' }),
       ],
     ),

@@ -71,9 +71,14 @@ import {
   formatExtractSkipReason,
   isRecognizableExtractGroup,
 } from './feishu-extract-group.util';
+import { createThrottledAsyncUpdater } from './feishu-progress-throttle.util';
 import { ApprovalRecordService } from '../approval-record/approval-record.service';
 import { ApprovalNotifyService } from '../approval-notify/approval-notify.service';
 import { PromiseChainLock } from './feishu-promise-chain-lock.util';
+import {
+  listMissingUnmatchedTypeIndexes,
+  unmatchedTypeSelectionHint,
+} from './feishu-submit-selection.util';
 import { extractApprovalRejectReason } from './feishu-approval-reject-reason.util';
 
 const DEFAULT_MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -83,6 +88,8 @@ const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const UPLOAD_CARD_UPDATE_WINDOW_MS = 15 * 60 * 1000;
 /** 合并连发文件触发的确认卡刷新，避免并发 send 出多张卡 */
 const UPLOAD_CARD_DEBOUNCE_MS = 300;
+/** 飞书进度卡更新节流，避免频繁 update 触发限流 */
+const PROGRESS_CARD_THROTTLE_MS = 800;
 const UPLOAD_SESSION_STATUSES: BotSessionStatus[] = [
   'awaiting_upload',
   'awaiting_confirm',
@@ -534,6 +541,7 @@ export class FeishuBotService {
       invoice_date: item.invoice_date,
       issuer: item.issuer,
       duplicate: item.duplicate,
+      attachment_url: item.attachment_url,
     }));
   }
 
@@ -739,7 +747,10 @@ export class FeishuBotService {
       return;
     }
 
-    if (parsed.actionName === 'confirm_reimburse' || parsed.actionName === 'upload_complete') {
+    if (
+      parsed.actionName === 'confirm_reimburse' ||
+      parsed.actionName === 'upload_complete'
+    ) {
       void this.prepareRecognition(body)
         .then((result) => {
           res.status(200).json(
@@ -759,6 +770,31 @@ export class FeishuBotService {
         .catch((err) => {
           this.logger.error('准备识别失败', err);
           res.status(200).json(buildCardActionResponse(parsed.actionName));
+        });
+      return;
+    }
+
+    if (parsed.actionName === 'submit_with_selection') {
+      void this.handleSubmitWithSelection(body)
+        .then((result) => {
+          const content = result.toastContent;
+          res.status(200).json({
+            toast: {
+              type: result.ok ? 'info' : 'warning',
+              content,
+              i18n: { zh_cn: content, en_us: content },
+            },
+          });
+        })
+        .catch((err) => {
+          this.logger.error('处理带类型选择的提交失败', err);
+          res.status(200).json({
+            toast: {
+              type: 'error',
+              content: '提交失败',
+              i18n: { zh_cn: '提交失败', en_us: 'Submit failed' },
+            },
+          });
         });
       return;
     }
@@ -1205,15 +1241,7 @@ export class FeishuBotService {
         await this.submitMatched(session, true);
         return;
       case 'submit_with_selection': {
-        const event = (body.event as Record<string, unknown>) ?? body;
-        const action = (event.action ?? body.action) as {
-          form_value?: Record<string, string>;
-        };
-        await this.submitWithSelection(
-          session,
-          action?.form_value ?? {},
-          session.recognized_items.some((i) => i.duplicate),
-        );
+        // 由 handleSubmitWithSelection 同步校验并处理，避免未选类型仍 toast「提交中」
         return;
       }
       default:
@@ -1221,15 +1249,64 @@ export class FeishuBotService {
     }
   }
 
+  /**
+   * 未匹配发票带类型下拉的提交：先校验每张均已选择，失败则 toast 提示且不落库。
+   */
+  async handleSubmitWithSelection(
+    body: Record<string, unknown>,
+  ): Promise<{ ok: boolean; toastContent: string }> {
+    const parsed = parseCardActionBody(body);
+    const sessionId = parsed.sessionId;
+    if (!sessionId) {
+      return { ok: false, toastContent: '会话无效，请重新发送文件' };
+    }
+
+    const session = await this.sessionModel.findOne({ session_id: sessionId });
+    if (!session || session.status !== 'awaiting_submit') {
+      return { ok: false, toastContent: '当前不可提交，请刷新后重试' };
+    }
+
+    const event = (body.event as Record<string, unknown>) ?? body;
+    const action = (event.action ?? body.action) as {
+      form_value?: Record<string, string>;
+    };
+    const formValue = action?.form_value ?? {};
+
+    const missing = listMissingUnmatchedTypeIndexes(
+      session.recognized_items,
+      formValue,
+    );
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        toastContent: unmatchedTypeSelectionHint(missing.length),
+      };
+    }
+
+    await this.submitWithSelection(
+      session,
+      formValue,
+      session.recognized_items.some((i) => i.duplicate),
+    );
+    return { ok: true, toastContent: '提交中…' };
+  }
+
   private async refreshProgressCard(
     session: BotSession,
     done: number,
     total: number,
     hint?: string,
+    options?: { stage?: string; message?: string },
   ) {
     const progressId = session.message_ids?.progress;
     if (!progressId) return;
-    const card = buildProgressCard(session.session_id, done, total, hint);
+    const card = buildProgressCard(
+      session.session_id,
+      done,
+      total,
+      hint,
+      options,
+    );
     try {
       await this.feishuApi.updateInteractiveCard(progressId, card);
     } catch (err) {
@@ -1835,6 +1912,7 @@ export class FeishuBotService {
       0,
       estimatedTotal,
       '正在下载文件…',
+      { stage: 'prepare', message: '正在下载文件…' },
     );
     const progressId = await this.feishuApi.sendInteractiveCard(
       session.chat_id,
@@ -1895,6 +1973,25 @@ export class FeishuBotService {
         0,
         total,
         '文件已就绪，正在 AI 识别…',
+        { stage: 'prepare', message: '文件已就绪，正在 AI 识别…' },
+      );
+
+      const progressUpdater = createThrottledAsyncUpdater(
+        async (
+          done: number,
+          progressTotal: number,
+          hint?: string,
+          opts?: { stage?: string; message?: string },
+        ) => {
+          await this.refreshProgressCard(
+            session,
+            done,
+            progressTotal,
+            hint,
+            opts,
+          );
+        },
+        PROGRESS_CARD_THROTTLE_MS,
       );
 
       const existingInvoiceNumbers = new Set<string>();
@@ -1905,11 +2002,15 @@ export class FeishuBotService {
         skipped,
         {
           existingInvoiceNumbers,
-          onProgress: async (done, progressTotal) => {
-            await this.refreshProgressCard(session, done, progressTotal);
+          onProgress: async (done, progressTotal, meta) => {
+            progressUpdater.push(done, progressTotal, meta?.message, {
+              stage: meta?.stage,
+              message: meta?.message,
+            });
           },
         },
       );
+      await progressUpdater.flush();
 
       const recognizedWithAmounts = enrichRecognizedAmounts(recognized);
 
@@ -1934,6 +2035,7 @@ export class FeishuBotService {
         total,
         total,
         '识别完成，正在生成结果…',
+        { stage: 'done', message: '识别完成，正在生成结果…' },
       );
 
       session.recognized_items = recognizedWithAmounts;
@@ -2110,13 +2212,23 @@ export class FeishuBotService {
     skipped: string[],
     options: {
       existingInvoiceNumbers: Set<string>;
-      onProgress?: (done: number, total: number) => Promise<void>;
+      onProgress?: (
+        done: number,
+        total: number,
+        meta?: { stage?: string; message?: string },
+      ) => Promise<void>;
     },
   ): Promise<BotRecognizedItem[]> {
-    const raw = await this.aiService.extractReimbursementForm(
+    const raw = await this.aiService.extractReimbursementFormWithProgress(
       downloadedFiles.map(
         (f) => `${f.file_name}::${f.buffer.toString('base64')}`,
       ),
+      async (progress) => {
+        await options.onProgress?.(progress.done, progress.total, {
+          stage: progress.stage,
+          message: progress.message,
+        });
+      },
     );
     const groups = this.normalizeExtractGroups(raw);
     const types = await this.typeService.findAll(userId);
@@ -2137,7 +2249,10 @@ export class FeishuBotService {
 
       if (!isRecognizableExtractGroup(group)) {
         skipped.push(formatExtractSkipReason(group, fileName));
-        await options.onProgress?.(i + 1, total);
+        await options.onProgress?.(i + 1, total, {
+          stage: 'match',
+          message: `整理结果 · ${i + 1}/${total}`,
+        });
         continue;
       }
 
@@ -2169,6 +2284,7 @@ export class FeishuBotService {
 
       const details = this.buildDetails(head);
       let attachmentId: string | undefined;
+      let attachmentUrl: string | undefined;
       if (fileMeta) {
         const uploaded = await this.fileService.uploadBuffer({
           buffer: fileMeta.buffer,
@@ -2178,6 +2294,7 @@ export class FeishuBotService {
           type: 'attachment',
         });
         attachmentId = String(uploaded.id);
+        attachmentUrl = uploaded.url;
       }
       recognized.push({
         file_name: fileMeta?.file_name ?? `file-${i + 1}`,
@@ -2195,8 +2312,12 @@ export class FeishuBotService {
         duplicate,
         file_key: fileMeta?.file_key,
         attachment_id: attachmentId,
+        attachment_url: attachmentUrl,
       });
-      await options.onProgress?.(i + 1, total);
+      await options.onProgress?.(i + 1, total, {
+        stage: 'match',
+        message: `整理结果 · ${i + 1}/${total}`,
+      });
     }
 
     return recognized;
@@ -2378,10 +2499,20 @@ export class FeishuBotService {
   ) {
     if (session.status !== 'awaiting_submit') return;
 
+    const missing = listMissingUnmatchedTypeIndexes(
+      session.recognized_items,
+      formValue,
+    );
+    if (missing.length > 0) {
+      this.logger.warn(
+        `拒绝提交：未匹配发票未选类型 count=${missing.length} session=${session.session_id}`,
+      );
+      return;
+    }
+
     const updated = session.recognized_items.map((item, index) => {
       if (item.matched || item.duplicate) return item;
       const selected = String(formValue[`type_${index}`] ?? '').trim();
-      if (!selected) return item;
       return { ...item, category_id: selected, matched: true };
     });
     session.recognized_items = updated;

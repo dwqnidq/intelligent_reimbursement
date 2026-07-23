@@ -73,6 +73,9 @@ export class BotRecognizedItem {
   attachment_id?: string;
 
   @Prop()
+  attachment_url?: string;
+
+  @Prop()
   local_temp_path?: string;
 }
 

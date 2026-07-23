@@ -17,6 +17,7 @@ from src.db.reimbursement_types_repo import (
     build_suggested_rows_from_assignment_maps,
     build_types_skeleton_for_llm,
 )
+from src.invoice_fallback import build_unmatched_invoice_only_rows
 from src.llm import llm, llm_vision
 from src.models import InvoiceResultList, ReimbursementFormValuesExtract
 
@@ -475,30 +476,45 @@ def _form_extract_one_file(
             )
             if not has_fields:
                 _logger.info(
-                    "[报销表单提取] 第 %d/%d 个文件「%s」建议类型路径无有效字段",
+                    "[报销表单提取] 第 %d/%d 个文件「%s」建议类型路径无有效字段，"
+                    "保留发票号供手动选类型",
                     idx + 1,
                     total_files,
                     short_name,
                 )
-                return idx, [], None
+                batch_for_file = build_unmatched_invoice_only_rows(
+                    invoice_meta,
+                    suggested_label=str(
+                        dumped.get("suggested_type_label")
+                        or dumped.get("label")
+                        or ""
+                    ),
+                )
         else:
             lines_fv = _dumped_extract_to_lines_fv(dumped)
             if not _lines_fv_has_any_value(lines_fv):
                 _logger.info(
-                    "[报销表单提取] 第 %d/%d 个文件「%s」无有效 assignments",
+                    "[报销表单提取] 第 %d/%d 个文件「%s」无有效 assignments，"
+                    "保留发票号供手动选类型",
                     idx + 1,
                     total_files,
                     short_name,
                 )
-                return idx, [], None
-            batch_for_file = list(
-                build_form_result_array_from_db_values(
-                    types_payload,
-                    dumped.get("name") or dumped.get("label") or "",
-                    lines_fv,
-                    code=(dumped.get("code") or "") or None,
+                batch_for_file = build_unmatched_invoice_only_rows(
+                    invoice_meta,
+                    suggested_label=str(
+                        dumped.get("name") or dumped.get("label") or ""
+                    ),
                 )
-            )
+            else:
+                batch_for_file = list(
+                    build_form_result_array_from_db_values(
+                        types_payload,
+                        dumped.get("name") or dumped.get("label") or "",
+                        lines_fv,
+                        code=(dumped.get("code") or "") or None,
+                    )
+                )
 
         _logger.info(
             "[报销表单提取] 第 %d/%d 个文件「%s」内层条数=%d",

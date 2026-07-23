@@ -127,6 +127,18 @@ export class FeishuWsService implements OnApplicationBootstrap, OnModuleDestroy 
           });
         }
 
+        if (parsed.actionName === 'submit_with_selection') {
+          const result = await this.botService.handleSubmitWithSelection(data);
+          const content = result.toastContent;
+          return {
+            toast: {
+              type: result.ok ? 'info' : 'warning',
+              content,
+              i18n: { zh_cn: content, en_us: content },
+            },
+          };
+        }
+
         setImmediate(() => {
           void this.botService
             .handleCardAction(data)

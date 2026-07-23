@@ -49,6 +49,15 @@ function parseProgressToken(token: string | undefined): ProgressFields | null {
   }
 }
 
+/** 解析 gRPC/SSE 进度 token（供飞书 Bot 等非 SSE 消费方复用） */
+export function parseAiProgressToken(
+  token: string | undefined,
+): ProgressFields | null {
+  return parseProgressToken(token);
+}
+
+export type AiProgressFields = ProgressFields;
+
 export function buildNonFinalSsePayload(chunk: {
   node?: string;
   token?: string;

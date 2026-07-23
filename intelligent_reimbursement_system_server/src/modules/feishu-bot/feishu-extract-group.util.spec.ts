@@ -72,9 +72,15 @@ describe('feishu-extract-group.util', () => {
     ).toBe('photo.jpg: 未识别到有效发票号码');
   });
 
-  it('formats default skip reason when no invoice number', () => {
-    expect(formatExtractSkipReason([{ label: 'x', fields: [] }], 'a.pdf')).toBe(
-      'a.pdf: 未识别到有效发票号码',
-    );
+  it('accepts invoice-number-only rows for unmatched manual type select', () => {
+    expect(
+      isRecognizableExtractGroup([
+        {
+          label: '未识别到报销类型',
+          invoice_number: '12345678901234',
+          fields: [],
+        },
+      ]),
+    ).toBe(true);
   });
 });

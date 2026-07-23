@@ -3,6 +3,7 @@ import {
   buildApprovalSkippedCard,
   buildConfirmCard,
   buildProfileCard,
+  buildProgressCard,
   buildResultCard,
 } from './feishu-card.builder';
 
@@ -414,5 +415,36 @@ describe('feishu-card.builder', () => {
     expect(amountLabelCount).toBe(1);
     expect(body).toContain('**金额**：100');
     expect(body).not.toContain('1280.50');
+  });
+
+  it('buildProgressCard shows stage pipeline and message', () => {
+    const card = buildProgressCard('sess-p', 1, 3, undefined, {
+      stage: 'extract',
+      message: '字段提取中 · 第 1/3 张',
+    });
+    const body = JSON.stringify(card);
+    expect(body).toContain('正在识别发票');
+    expect(body).toContain('▶ 提取');
+    expect(body).toContain('字段提取中 · 第 1/3 张');
+    expect(body).toContain('OCR');
+  });
+
+  it('buildResultCard makes file names clickable when attachment_url present', () => {
+    const card = buildResultCard(
+      'sess-preview',
+      [
+        {
+          file_name: 'invoice.pdf',
+          category_label: '差旅',
+          matched: true,
+          amount: 12,
+          attachment_url: 'https://cdn.example.com/invoice.pdf',
+        },
+      ],
+      [],
+      'ready',
+    );
+    const body = JSON.stringify(card);
+    expect(body).toContain('[invoice.pdf](https://cdn.example.com/invoice.pdf)');
   });
 });

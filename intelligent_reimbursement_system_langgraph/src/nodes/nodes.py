@@ -349,6 +349,16 @@ def _iter_form_extract_steps(state: GraphState):
             )
             ocr_text = ocr_texts[0] if ocr_texts else None
             _, batch, fail = _form_extract_one_file(0, files[0], types_payload, total_files, ocr_text=ocr_text)
+            if fail and not batch:
+                short = fail.split(":", 1)[-1].strip() if ":" in fail else fail
+                batch = [
+                    {
+                        "label": "",
+                        "fields": [],
+                        "over_limit_threshold": 0,
+                        "fill_error": short or fail,
+                    }
+                ]
             accumulated = [batch]
             if fail:
                 file_failures.append(fail)
@@ -428,6 +438,17 @@ def _iter_form_extract_steps(state: GraphState):
                 err = results_by_idx[i][1]
                 if err:
                     file_failures.append(err)
+                # 空组带失败原因时写入 fill_error 占位，避免飞书一律显示「未识别到有效发票号码」
+                if not accumulated[i] and err:
+                    short = err.split(":", 1)[-1].strip() if ":" in err else err
+                    accumulated[i] = [
+                        {
+                            "label": "",
+                            "fields": [],
+                            "over_limit_threshold": 0,
+                            "fill_error": short or err,
+                        }
+                    ]
             if total_files > 1:
                 accumulated = apply_batch_invoice_dedup(accumulated)
 
