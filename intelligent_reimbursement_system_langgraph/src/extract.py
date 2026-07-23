@@ -17,7 +17,10 @@ from src.db.reimbursement_types_repo import (
     build_suggested_rows_from_assignment_maps,
     build_types_skeleton_for_llm,
 )
-from src.invoice_fallback import build_unmatched_invoice_only_rows
+from src.invoice_fallback import (
+    build_unmatched_invoice_only_rows,
+    resolve_unmatched_amount,
+)
 from src.llm import llm, llm_vision
 from src.models import InvoiceResultList, ReimbursementFormValuesExtract
 
@@ -482,6 +485,7 @@ def _form_extract_one_file(
                     total_files,
                     short_name,
                 )
+                amount = resolve_unmatched_amount(dumped, ocr_text)
                 batch_for_file = build_unmatched_invoice_only_rows(
                     invoice_meta,
                     suggested_label=str(
@@ -489,6 +493,8 @@ def _form_extract_one_file(
                         or dumped.get("label")
                         or ""
                     ),
+                    amount=amount,
+                    ocr_text=ocr_text,
                 )
         else:
             lines_fv = _dumped_extract_to_lines_fv(dumped)
@@ -500,11 +506,14 @@ def _form_extract_one_file(
                     total_files,
                     short_name,
                 )
+                amount = resolve_unmatched_amount(dumped, ocr_text)
                 batch_for_file = build_unmatched_invoice_only_rows(
                     invoice_meta,
                     suggested_label=str(
                         dumped.get("name") or dumped.get("label") or ""
                     ),
+                    amount=amount,
+                    ocr_text=ocr_text,
                 )
             else:
                 batch_for_file = list(
@@ -515,6 +524,13 @@ def _form_extract_one_file(
                         code=(dumped.get("code") or "") or None,
                     )
                 )
+
+        # 所有成功批次挂上 OCR，供未匹配二次填单
+        ocr_snip = (ocr_text or "").strip()[:8000]
+        if ocr_snip:
+            for row in batch_for_file:
+                if isinstance(row, dict) and not row.get("ocr_text"):
+                    row["ocr_text"] = ocr_snip
 
         _logger.info(
             "[报销表单提取] 第 %d/%d 个文件「%s」内层条数=%d",

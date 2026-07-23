@@ -72,6 +72,7 @@ import {
   isRecognizableExtractGroup,
 } from './feishu-extract-group.util';
 import { createThrottledAsyncUpdater } from './feishu-progress-throttle.util';
+import { mapWithConcurrency } from './feishu-concurrency.util';
 import { ApprovalRecordService } from '../approval-record/approval-record.service';
 import { ApprovalNotifyService } from '../approval-notify/approval-notify.service';
 import { PromiseChainLock } from './feishu-promise-chain-lock.util';
@@ -90,6 +91,8 @@ const UPLOAD_CARD_UPDATE_WINDOW_MS = 15 * 60 * 1000;
 const UPLOAD_CARD_DEBOUNCE_MS = 300;
 /** 飞书进度卡更新节流，避免频繁 update 触发限流 */
 const PROGRESS_CARD_THROTTLE_MS = 800;
+/** 未匹配二次填单并行度 */
+const TYPE_FIELD_FILL_CONCURRENCY = 2;
 const UPLOAD_SESSION_STATUSES: BotSessionStatus[] = [
   'awaiting_upload',
   'awaiting_confirm',
@@ -148,6 +151,7 @@ type ExtractRow = {
   issuer?: string;
   invoice_duplicate?: boolean;
   fill_error?: string;
+  ocr_text?: string;
 };
 
 @Injectable()
@@ -774,8 +778,12 @@ export class FeishuBotService {
       return;
     }
 
-    if (parsed.actionName === 'submit_with_selection') {
-      void this.handleSubmitWithSelection(body)
+    if (
+      parsed.actionName === 'submit_all_matched' ||
+      parsed.actionName === 'submit_skip_duplicates' ||
+      parsed.actionName === 'submit_with_selection'
+    ) {
+      void this.beginResultSubmit(body)
         .then((result) => {
           const content = result.toastContent;
           res.status(200).json({
@@ -784,10 +792,11 @@ export class FeishuBotService {
               content,
               i18n: { zh_cn: content, en_us: content },
             },
+            ...(result.card ? { card: wrapCallbackCard(result.card) } : {}),
           });
         })
         .catch((err) => {
-          this.logger.error('处理带类型选择的提交失败', err);
+          this.logger.error('处理结果卡提交失败', err);
           res.status(200).json({
             toast: {
               type: 'error',
@@ -1235,13 +1244,9 @@ export class FeishuBotService {
         return;
       }
       case 'submit_all_matched':
-        await this.submitMatched(session, false);
-        return;
       case 'submit_skip_duplicates':
-        await this.submitMatched(session, true);
-        return;
       case 'submit_with_selection': {
-        // 由 handleSubmitWithSelection 同步校验并处理，避免未选类型仍 toast「提交中」
+        // 由 beginResultSubmit 同步锁定卡片并后台提交
         return;
       }
       default:
@@ -1250,13 +1255,21 @@ export class FeishuBotService {
   }
 
   /**
-   * 未匹配发票带类型下拉的提交：先校验每张均已选择，失败则 toast 提示且不落库。
+   * 结果卡提交入口：校验后立即返回锁定卡片，后台执行提交（含未匹配二次填单）。
    */
-  async handleSubmitWithSelection(
+  async beginResultSubmit(
     body: Record<string, unknown>,
-  ): Promise<{ ok: boolean; toastContent: string }> {
+  ): Promise<{ ok: boolean; toastContent: string; card?: unknown }> {
     const parsed = parseCardActionBody(body);
+    const actionName = parsed.actionName;
     const sessionId = parsed.sessionId;
+    if (
+      actionName !== 'submit_all_matched' &&
+      actionName !== 'submit_skip_duplicates' &&
+      actionName !== 'submit_with_selection'
+    ) {
+      return { ok: false, toastContent: '未知提交操作' };
+    }
     if (!sessionId) {
       return { ok: false, toastContent: '会话无效，请重新发送文件' };
     }
@@ -1272,23 +1285,80 @@ export class FeishuBotService {
     };
     const formValue = action?.form_value ?? {};
 
-    const missing = listMissingUnmatchedTypeIndexes(
-      session.recognized_items,
-      formValue,
-    );
-    if (missing.length > 0) {
-      return {
-        ok: false,
-        toastContent: unmatchedTypeSelectionHint(missing.length),
-      };
+    if (actionName === 'submit_with_selection') {
+      const missing = listMissingUnmatchedTypeIndexes(
+        session.recognized_items,
+        formValue,
+      );
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          toastContent: unmatchedTypeSelectionHint(missing.length),
+        };
+      }
     }
 
-    await this.submitWithSelection(
+    const lockedReason =
+      actionName === 'submit_with_selection'
+        ? '正在补全字段并提交…'
+        : '提交中…';
+    const lockedCard = await this.buildResultCardForSession(session, {
+      locked: true,
+      lockedReason,
+    });
+    await this.updateSessionCard(
       session,
-      formValue,
-      session.recognized_items.some((i) => i.duplicate),
+      session.message_ids?.result,
+      lockedCard,
     );
-    return { ok: true, toastContent: '提交中…' };
+
+    setImmediate(() => {
+      void (async () => {
+        try {
+          const fresh = await this.sessionModel.findOne({
+            session_id: sessionId,
+          });
+          if (!fresh || fresh.status !== 'awaiting_submit') return;
+          if (actionName === 'submit_with_selection') {
+            await this.submitWithSelection(
+              fresh,
+              formValue,
+              fresh.recognized_items.some((i) => i.duplicate),
+            );
+            return;
+          }
+          await this.submitMatched(
+            fresh,
+            actionName === 'submit_skip_duplicates',
+          );
+        } catch (err) {
+          this.logger.error(
+            `结果卡提交失败 action=${actionName} session=${sessionId}`,
+            err,
+          );
+          const failed = await this.sessionModel.findOne({
+            session_id: sessionId,
+          });
+          if (!failed || failed.status === 'cancelled') return;
+          failed.status = 'awaiting_submit';
+          await failed.save();
+          await this.sendResultCardForSession(failed);
+          await this.feishuApi.sendTextMessage(
+            failed.chat_id,
+            '提交失败，请稍后重试。',
+          );
+        }
+      })();
+    });
+
+    return {
+      ok: true,
+      toastContent:
+        actionName === 'submit_with_selection'
+          ? '正在补全字段并提交…'
+          : '提交中…',
+      card: lockedCard,
+    };
   }
 
   private async refreshProgressCard(
@@ -2283,6 +2353,7 @@ export class FeishuBotService {
       }
 
       const details = this.buildDetails(head);
+      const ocrText = this.resolveOcrText(group, head);
       let attachmentId: string | undefined;
       let attachmentUrl: string | undefined;
       if (fileMeta) {
@@ -2313,6 +2384,7 @@ export class FeishuBotService {
         file_key: fileMeta?.file_key,
         attachment_id: attachmentId,
         attachment_url: attachmentUrl,
+        ocr_text: ocrText,
       });
       await options.onProgress?.(i + 1, total, {
         stage: 'match',
@@ -2510,14 +2582,116 @@ export class FeishuBotService {
       return;
     }
 
-    const updated = session.recognized_items.map((item, index) => {
-      if (item.matched || item.duplicate) return item;
+    const needFillIndexes: number[] = [];
+    const selectedByIndex = new Map<number, string>();
+    session.recognized_items.forEach((item, index) => {
+      if (item.matched || item.duplicate) return;
       const selected = String(formValue[`type_${index}`] ?? '').trim();
-      return { ...item, category_id: selected, matched: true };
+      if (!selected) return;
+      selectedByIndex.set(index, selected);
+      needFillIndexes.push(index);
+    });
+
+    const userId = String(session.user_id ?? '');
+    const types = userId ? await this.typeService.findAll(userId) : [];
+    const typeById = new Map(
+      types.map((t) => [
+        String(t._id),
+        {
+          _id: String(t._id),
+          label: String(t.label ?? (t as { name?: string }).name ?? t.code ?? ''),
+          name: (t as { name?: string }).name,
+          code: t.code,
+          fields: Array.isArray(t.fields) ? t.fields : [],
+        },
+      ]),
+    );
+
+    const fillResults = await mapWithConcurrency(
+      needFillIndexes,
+      TYPE_FIELD_FILL_CONCURRENCY,
+      async (index) => {
+        const item = session.recognized_items[index];
+        const typeId = selectedByIndex.get(index)!;
+        const typeDoc = typeById.get(typeId);
+        if (!typeDoc) {
+          return {
+            index,
+            category_id: typeId,
+            category_label: item.category_label,
+            details: item.amount ? { amount: item.amount } : {},
+            amount: item.amount ?? 0,
+          };
+        }
+        try {
+          const filled = await this.aiService.fillTypeFields({
+            typeJson: JSON.stringify({
+              label: typeDoc.label,
+              name: typeDoc.name,
+              code: typeDoc.code,
+              fields: typeDoc.fields,
+            }),
+            ocrText: String(item.ocr_text ?? ''),
+            knownAmount: item.amount,
+          });
+          const details = this.buildDetails({
+            fields: filled.fields,
+          } as ExtractRow);
+          const amount =
+            this.extractAmount({ fields: filled.fields } as ExtractRow) ||
+            item.amount ||
+            0;
+          return {
+            index,
+            category_id: typeId,
+            category_label: typeDoc.label,
+            details,
+            amount,
+          };
+        } catch (err) {
+          this.logger.warn(
+            `二次填单失败 index=${index} session=${session.session_id}`,
+            err,
+          );
+          return {
+            index,
+            category_id: typeId,
+            category_label: typeDoc.label,
+            details: item.amount ? { amount: item.amount } : { ...item.details },
+            amount: item.amount ?? 0,
+          };
+        }
+      },
+    );
+
+    const fillByIndex = new Map(fillResults.map((row) => [row.index, row]));
+    const updated = session.recognized_items.map((item, index) => {
+      const filled = fillByIndex.get(index);
+      if (!filled) return item;
+      return {
+        ...item,
+        category_id: filled.category_id,
+        category_label: filled.category_label,
+        matched: true,
+        details: filled.details,
+        amount: filled.amount,
+      };
     });
     session.recognized_items = updated;
     await session.save();
     await this.submitMatched(session, skipDuplicates, { allowManualType: true });
+  }
+
+  private resolveOcrText(
+    group: ExtractRow[],
+    head?: ExtractRow,
+  ): string | undefined {
+    for (const row of group) {
+      const text = String(row.ocr_text ?? '').trim();
+      if (text) return text.slice(0, 8000);
+    }
+    const headText = String(head?.ocr_text ?? '').trim();
+    return headText ? headText.slice(0, 8000) : undefined;
   }
 
   private async submitMatched(

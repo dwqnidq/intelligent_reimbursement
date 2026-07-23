@@ -75,6 +75,10 @@ export class BotRecognizedItem {
   @Prop()
   attachment_url?: string;
 
+  /** 原票 OCR 截断文本，供未匹配二次填单 */
+  @Prop()
+  ocr_text?: string;
+
   @Prop()
   local_temp_path?: string;
 }

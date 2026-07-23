@@ -745,8 +745,11 @@ export function buildResultCard(
       : 'submit_all_matched';
 
   const buildCancelButton = () => {
-    if (cancelled) {
-      return disabledButton('取消', '已取消');
+    if (cancelled || locked) {
+      return disabledButton(
+        '取消',
+        cancelled ? '已取消' : (options?.lockedReason ?? '处理中'),
+      );
     }
     return button('取消', mode === 'has_duplicate' ? 'danger' : 'default', actionValue('cancel_submit', sessionId), {
       name: 'btn_cancel_submit',

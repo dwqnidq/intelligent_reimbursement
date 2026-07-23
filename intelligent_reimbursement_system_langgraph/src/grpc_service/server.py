@@ -1,5 +1,6 @@
 """gRPC 服务器实现"""
 import os
+import json
 import grpc
 import logging
 from concurrent import futures
@@ -19,11 +20,32 @@ class GraphServiceServicer(graph_service_pb2_grpc.GraphServiceServicer):
         """执行图的同步方法"""
         try:
             logger.info("收到请求: %s", request.input)
+            config = dict(request.config) if hasattr(request, 'config') and request.config else {}
+            input_text = request.input or ""
+
+            from src.type_field_fill import (
+                TYPE_FIELD_FILL_TRIGGER,
+                run_type_field_fill_from_config,
+            )
+
+            if TYPE_FIELD_FILL_TRIGGER in input_text:
+                filled = run_type_field_fill_from_config(config)
+                output = json.dumps(
+                    {"node": "type_field_fill", "result": filled},
+                    ensure_ascii=False,
+                )
+                response = graph_service_pb2.GraphResponse(
+                    output=output,
+                    success=True,
+                    error="",
+                )
+                response.metadata["node"] = "type_field_fill"
+                return response
 
             # 准备初始状态
             files = list(request.files) if hasattr(request, 'files') and request.files else []
             initial_state = {
-                "input": request.input,
+                "input": input_text,
                 "messages": [],
                 "output": "",
                 "step_count": 0,

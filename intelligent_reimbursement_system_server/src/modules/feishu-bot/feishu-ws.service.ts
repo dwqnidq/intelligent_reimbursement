@@ -127,8 +127,12 @@ export class FeishuWsService implements OnApplicationBootstrap, OnModuleDestroy 
           });
         }
 
-        if (parsed.actionName === 'submit_with_selection') {
-          const result = await this.botService.handleSubmitWithSelection(data);
+        if (
+          parsed.actionName === 'submit_all_matched' ||
+          parsed.actionName === 'submit_skip_duplicates' ||
+          parsed.actionName === 'submit_with_selection'
+        ) {
+          const result = await this.botService.beginResultSubmit(data);
           const content = result.toastContent;
           return {
             toast: {
@@ -136,6 +140,7 @@ export class FeishuWsService implements OnApplicationBootstrap, OnModuleDestroy 
               content,
               i18n: { zh_cn: content, en_us: content },
             },
+            ...(result.card ? { card: wrapCallbackCard(result.card) } : {}),
           };
         }
 

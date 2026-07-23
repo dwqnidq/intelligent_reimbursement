@@ -74,7 +74,7 @@ describe('feishu-card.builder', () => {
     expect(body).not.toContain('cancel_submit');
   });
 
-  it('buildResultCard locked state disables submit but keeps cancel', () => {
+  it('buildResultCard locked state disables submit and cancel', () => {
     const card = buildResultCard(
       'sess-locked',
       [
@@ -92,8 +92,9 @@ describe('feishu-card.builder', () => {
     );
     const body = JSON.stringify(card);
     expect(body).toContain('正在识别补传文件');
+    expect(body).toContain('"disabled":true');
     expect(body).not.toContain('submit_skip_duplicates');
-    expect(body).toContain('cancel_submit');
+    expect(body).not.toContain('cancel_submit');
   });
 
   it('buildResultCard cancelled state disables submit buttons', () => {

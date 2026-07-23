@@ -89,6 +89,44 @@ export class AiService {
     });
   }
 
+  /**
+   * 手动选类型后的二次填单：OCR + 已知金额 + 类型字段定义 → 字段赋值。
+   */
+  async fillTypeFields(params: {
+    typeJson: string;
+    ocrText: string;
+    knownAmount?: number;
+  }): Promise<{
+    label?: string;
+    fields?: { key: string; value?: unknown; is_calculate?: boolean }[];
+  }> {
+    const config: Record<string, string> = {
+      type_json: params.typeJson,
+      ocr_text: params.ocrText ?? '',
+    };
+    if (
+      params.knownAmount != null &&
+      Number.isFinite(params.knownAmount) &&
+      params.knownAmount > 0
+    ) {
+      config.known_amount = String(params.knownAmount);
+    }
+    const res = await this.grpcClient.executeGraph({
+      input: '[[type_field_fill]]',
+      config,
+    });
+    if (!res.success) {
+      throw new Error(res.error || '二次填单失败');
+    }
+    const output = JSON.parse(res.output) as {
+      result?: {
+        label?: string;
+        fields?: { key: string; value?: unknown; is_calculate?: boolean }[];
+      };
+    };
+    return output.result ?? {};
+  }
+
   chatStream(
     input: string,
     files?: string[],
