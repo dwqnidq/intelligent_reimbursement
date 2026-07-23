@@ -288,6 +288,7 @@ export function ResultCard({
   onSubmit,
   onCancel,
   submitting,
+  submitLabel,
 }: {
   items: RecognitionInvoiceItem[];
   skippedNames?: string[];
@@ -297,6 +298,8 @@ export function ResultCard({
   onSubmit?: () => void;
   onCancel?: () => void;
   submitting?: boolean;
+  /** 覆盖主按钮文案（如二次填单后的「确认提交」） */
+  submitLabel?: string;
 }) {
   const submittable = items.filter((i) => !i.duplicate);
   const readyCount = submittable.filter((i) => i.categoryId).length;
@@ -346,11 +349,12 @@ export function ResultCard({
         : `合计 ¥${total.toFixed(2)} · 请核对后确认报销`;
 
   const primaryLabel =
-    mode === "has_duplicate"
+    submitLabel ??
+    (mode === "has_duplicate"
       ? "跳过重复并提交"
       : needsTypeSelection && readyCount > 0
         ? "仅提交已就绪"
-        : "确认报销";
+        : "确认报销");
 
   return (
     <div className="rc-card">

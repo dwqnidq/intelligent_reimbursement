@@ -1,6 +1,8 @@
 import type {
 	AiReimbursementFormExtractPayload,
 	AiReimbursementFormExtractRow,
+	AiReimbursementFormField,
+	FillTypeFieldsResult,
 } from '../api/ai';
 import type { InvoiceInfoParams } from '../api/reimbursement';
 import type { ReimbursementType } from '../api/reimbursement';
@@ -23,6 +25,10 @@ export type FileSlotRecognitionSummary = {
 	invoiceInfo?: InvoiceInfoParams;
 	/** 用户手动选择的报销类型 ID */
 	userSelectedCategoryId?: string;
+	/** 原票 OCR，供二次填单 */
+	ocrText?: string;
+	/** 已对当前所选类型完成二次填单（再改类型会清掉） */
+	typeFillApplied?: boolean;
 };
 
 export type InvoiceDuplicateIssue = {
@@ -157,6 +163,9 @@ export function buildFileSlotSummaries(
 					...(issuer ? { issuer } : {}),
 				}
 			: undefined;
+		const ocrText =
+			g.map((r) => String(r.ocr_text ?? '').trim()).find((t) => t.length > 0) ||
+			undefined;
 		return {
 			fileIndex: fi + 1,
 			fileName: fileNames[fi] || undefined,
@@ -173,6 +182,7 @@ export function buildFileSlotSummaries(
 			invoiceDuplicate,
 			invoiceBatchDuplicate,
 			invoiceInfo,
+			ocrText,
 		};
 	});
 	return markBatchDuplicateSlots(summaries);
@@ -259,8 +269,89 @@ export function applyManualTypeSelection(
 	categoryId: string,
 ): FileSlotRecognitionSummary[] {
 	return summaries.map((s) =>
-		s.fileIndex === fileIndex ? { ...s, userSelectedCategoryId: categoryId } : s,
+		s.fileIndex === fileIndex
+			? {
+					...s,
+					userSelectedCategoryId: categoryId,
+					typeFillApplied: false,
+				}
+			: s,
 	);
+}
+
+/** 未匹配选手动类型或改过类型，且尚未完成本次二次填单 */
+export function needsTypeFieldFill(summary: FileSlotRecognitionSummary): boolean {
+	if (summary.invoiceDuplicate || summary.invoiceBatchDuplicate) return false;
+	if (!summary.userSelectedCategoryId) return false;
+	return !summary.typeFillApplied;
+}
+
+export function pickOcrTextFromGroup(
+	group: AiReimbursementFormExtractRow[] | undefined,
+	fallback?: string,
+): string {
+	if (Array.isArray(group)) {
+		for (const row of group) {
+			const text = String(row.ocr_text ?? '').trim();
+			if (text) return text;
+		}
+	}
+	return String(fallback ?? '').trim();
+}
+
+/**
+ * 将二次填单结果写回该文件的识别组：保留发票元数据与 OCR，字段改为 soft-fill 结果
+ *（无合适值时可为 fields: []，由调用方用类型骨架展示空表单）。
+ */
+export function applyTypeFillToGroup(
+	group: AiReimbursementFormExtractRow[],
+	filled: FillTypeFieldsResult,
+	typeLabel: string,
+): AiReimbursementFormExtractRow[] {
+	const head =
+		group.find((r) => r.invoice_duplicate) ??
+		group.find((r) => (r.fields?.length ?? 0) > 0) ??
+		group[0];
+	const ocrText = pickOcrTextFromGroup(group);
+	const fields = Array.isArray(filled.fields) ? filled.fields : [];
+	const row: AiReimbursementFormExtractRow = {
+		label: String(filled.label ?? typeLabel).trim() || typeLabel,
+		fields,
+		is_suggested_type: false,
+		invoice_number: head?.invoice_number,
+		invoice_title: head?.invoice_title,
+		invoice_date: head?.invoice_date,
+		issuer: head?.issuer,
+		invoice_duplicate: head?.invoice_duplicate,
+		invoice_batch_duplicate: head?.invoice_batch_duplicate,
+		over_limit_threshold: head?.over_limit_threshold,
+		...(ocrText ? { ocr_text: ocrText } : {}),
+	};
+	return [row];
+}
+
+/** 用类型字段定义补齐填单结果骨架（无值也展示字段，避免空表单） */
+export function mergeFilledFieldsWithTypeSkeleton(
+	type: ReimbursementType,
+	filledFields: AiReimbursementFormField[] | undefined,
+): AiReimbursementFormField[] {
+	const valueByKey = new Map<string, unknown>();
+	for (const f of filledFields ?? []) {
+		if (!f?.key) continue;
+		if (f.value === undefined || f.value === null || f.value === '') continue;
+		valueByKey.set(f.key, f.value);
+	}
+	const sorted = [...(type.fields ?? [])].sort((a, b) => a.sort - b.sort);
+	return sorted.map((f, index) => ({
+		key: f.key,
+		label: f.label,
+		type: f.type,
+		required: f.required,
+		options: f.options,
+		sort: typeof f.sort === 'number' ? f.sort : index,
+		is_calculate: f.is_calculate,
+		...(valueByKey.has(f.key) ? { value: valueByKey.get(f.key) } : {}),
+	}));
 }
 
 export function buildRecognitionInvoiceItems(

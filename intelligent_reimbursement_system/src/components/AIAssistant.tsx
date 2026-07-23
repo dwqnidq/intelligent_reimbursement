@@ -17,6 +17,7 @@ import dayjs from "dayjs";
 import {
   chatStreamFetch,
   fileToBase64Entry,
+  fillTypeFields,
   REIMBURSEMENT_FORM_EXTRACT_MESSAGE,
   type AiReimbursementFormExtractPayload,
 } from "../api/ai";
@@ -50,9 +51,14 @@ import {
 import type { AiReimbursementFormExtractRow } from "../api/ai";
 import {
   applyManualTypeSelection,
+  applyTypeFillToGroup,
   buildFileSlotSummaries,
   buildRecognitionInvoiceItems,
+  extractAmountFromRow,
+  mergeFilledFieldsWithTypeSkeleton,
+  needsTypeFieldFill,
   normalizeExtractGroups,
+  pickOcrTextFromGroup,
   resolveResultCardMode,
   type RecognitionInvoiceItem,
   type FileSlotRecognitionSummary,
@@ -681,6 +687,84 @@ export default function AIAssistant() {
       return;
     }
 
+    const pendingFills = extract.summaries.filter((s) => needsTypeFieldFill(s));
+    if (pendingFills.length > 0) {
+      setSubmittingMessageId(messageId);
+      try {
+        const groups = extract.groups.map((g) => (Array.isArray(g) ? [...g] : []));
+        while (groups.length < files.length) groups.push([]);
+
+        await Promise.all(
+          pendingFills.map(async (summary) => {
+            const typeId = summary.userSelectedCategoryId;
+            if (!typeId) return;
+            const typeDoc = types.find((t) => t._id === typeId);
+            if (!typeDoc) throw new Error(`未找到报销类型`);
+            const groupIndex = summary.fileIndex - 1;
+            const group = groups[groupIndex] ?? [];
+            const ocrText = pickOcrTextFromGroup(group, summary.ocrText);
+            const head =
+              group.find((r) => (r.fields?.length ?? 0) > 0) ?? group[0];
+            const knownAmount = extractAmountFromRow(head);
+            const filled = await fillTypeFields({
+              typeJson: JSON.stringify({
+                label: typeDoc.label,
+                name: typeDoc.name,
+                code: typeDoc.code,
+                fields: typeDoc.fields,
+              }),
+              ocrText,
+              ...(knownAmount > 0 ? { knownAmount } : {}),
+            });
+            const mergedFields = mergeFilledFieldsWithTypeSkeleton(
+              typeDoc,
+              filled.fields,
+            );
+            groups[groupIndex] = applyTypeFillToGroup(
+              group,
+              { ...filled, fields: mergedFields, label: typeDoc.label },
+              typeDoc.label,
+            );
+          }),
+        );
+
+        const filledIndexes = new Set(pendingFills.map((p) => p.fileIndex));
+        let summaries = buildFileSlotSummaries(
+          groups,
+          types,
+          extract.fileNames,
+        );
+        summaries = summaries.map((s) => {
+          const prev = extract.summaries.find((x) => x.fileIndex === s.fileIndex);
+          if (!prev) return s;
+          return {
+            ...s,
+            userSelectedCategoryId: prev.userSelectedCategoryId,
+            ocrText: s.ocrText || prev.ocrText,
+            typeFillApplied: filledIndexes.has(s.fileIndex)
+              ? true
+              : prev.typeFillApplied,
+          };
+        });
+        const items = buildRecognitionInvoiceItems(groups, summaries, types);
+        patchExtractMessage(messageId, (prev) => ({
+          ...prev,
+          groups,
+          summaries,
+          items,
+          mode: resolveResultCardMode(items),
+        }));
+        antdMessage.info("已按所选类型重新填写字段，请核对后再次确认报销");
+      } catch (err) {
+        antdMessage.error(
+          err instanceof Error ? err.message : "二次填单失败，请稍后再试",
+        );
+      } finally {
+        setSubmittingMessageId(null);
+      }
+      return;
+    }
+
     setSubmittingMessageId(messageId);
     try {
       const uploadedIds: string[] = [];
@@ -694,9 +778,21 @@ export default function AIAssistant() {
         const group = extract.groups[item.fileIndex - 1] ?? [];
         const head =
           group.find((r) => (r.fields?.length ?? 0) > 0) ?? group[0];
+        const typeDoc = types.find((t) => t._id === item.categoryId);
         const details: Record<string, unknown> = {};
-        for (const field of head?.fields ?? []) {
-          if (field.key) details[field.key] = field.value ?? "";
+        if (typeDoc?.fields?.length) {
+          const valueByKey = new Map(
+            (head?.fields ?? []).map((f) => [f.key, f.value]),
+          );
+          for (const field of typeDoc.fields) {
+            const v = valueByKey.get(field.key);
+            if (v === undefined || v === null || v === "") continue;
+            details[field.key] = v;
+          }
+        } else {
+          for (const field of head?.fields ?? []) {
+            if (field.key) details[field.key] = field.value ?? "";
+          }
         }
         return {
           applicant_name: user?.real_name ?? "",
@@ -720,7 +816,13 @@ export default function AIAssistant() {
       });
 
       const res = await createReimbursement(payload);
-      const total = submittable.reduce((s, i) => s + i.amount, 0);
+      const total = submittable.reduce((s, i) => {
+        const group = extract.groups[i.fileIndex - 1] ?? [];
+        const head =
+          group.find((r) => (r.fields?.length ?? 0) > 0) ?? group[0];
+        const amount = extractAmountFromRow(head) || i.amount;
+        return s + amount;
+      }, 0);
       patchExtractMessage(messageId, (prev) => ({
         ...prev,
         status: "submitted",
@@ -882,6 +984,13 @@ export default function AIAssistant() {
     }
 
     const sessionTypes = types;
+    const hasPendingTypeFill = extract.summaries.some((s) => needsTypeFieldFill(s));
+    const hasTypeFillApplied = extract.summaries.some((s) => s.typeFillApplied);
+    const submitLabel = hasPendingTypeFill
+      ? "按类型填写并核对"
+      : hasTypeFillApplied
+        ? "确认提交"
+        : undefined;
 
     const resultCard = (
       <ResultCard
@@ -903,6 +1012,7 @@ export default function AIAssistant() {
           canAct ? () => handleCancelExtract(messageId) : undefined
         }
         submitting={submittingMessageId === messageId}
+        submitLabel={submitLabel}
       />
     );
 

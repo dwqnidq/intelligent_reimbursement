@@ -22,6 +22,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { User } from '../../schemas/user.schema';
 import { Role } from '../../schemas/role.schema';
 import { NoWrapResponseInterceptor } from '../../common/no-wrap.interceptor';
+import { FillTypeFieldsDto } from './dto/fill-type-fields.dto';
 
 class ChatDto {
   @ApiProperty({ description: '用户消息内容', example: '帮我分析本月报销数据' })
@@ -48,6 +49,18 @@ export class AiController {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Role.name) private roleModel: Model<Role>,
   ) {}
+
+  @ApiOperation({
+    summary: '手动选类型后的二次填单（OCR + 类型字段 soft-fill）',
+  })
+  @Post('fill-type-fields')
+  async fillTypeFields(@Body() dto: FillTypeFieldsDto) {
+    return this.aiService.fillTypeFields({
+      typeJson: dto.typeJson,
+      ocrText: dto.ocrText,
+      knownAmount: dto.knownAmount,
+    });
+  }
 
   @ApiOperation({ summary: 'AI 流式对话（SSE）' })
   @Post('chat')

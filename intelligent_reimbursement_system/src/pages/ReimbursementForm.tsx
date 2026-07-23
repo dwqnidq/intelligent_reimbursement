@@ -30,6 +30,7 @@ import ReimbursementTypeAttachmentRemarkSection from '../components/Reimbursemen
 import {
 	chatStreamFetch,
 	fileToBase64Entry,
+	fillTypeFields,
 	REIMBURSEMENT_FORM_EXTRACT_MESSAGE,
 	type AiReimbursementFormExtractPayload,
 	type AiReimbursementFormExtractRow,
@@ -37,12 +38,17 @@ import {
 } from '../api/ai';
 import {
 	buildFileSlotSummaries,
+	extractAmountFromRow,
 	findReimbursementTypeByRecognition,
 	normalizeExtractGroups,
 	analyzeInvoiceDuplicateIssues,
 	resolveCategoryId,
 	isSummarySubmittable,
 	applyManualTypeSelection,
+	applyTypeFillToGroup,
+	mergeFilledFieldsWithTypeSkeleton,
+	needsTypeFieldFill,
+	pickOcrTextFromGroup,
 	type FileSlotRecognitionSummary,
 	type InvoiceDuplicateIssue,
 } from '../utils/reimbursementRecognition';
@@ -179,7 +185,10 @@ function collectMatchedSubmissionRows(
 		if (!summary || summary.invoiceDuplicate || summary.invoiceBatchDuplicate) continue;
 		const categoryId = resolveCategoryId(summary, types);
 		if (!categoryId) continue;
-		const detail = serializeDetailRow(rows[i] ?? {}, selectedFields);
+		const typeDoc = types.find((t) => t._id === categoryId);
+		const fieldsMeta =
+			typeDoc?.fields && typeDoc.fields.length > 0 ? typeDoc.fields : selectedFields;
+		const detail = serializeDetailRow(rows[i] ?? {}, fieldsMeta);
 		out.push({
 			detail,
 			categoryId,
@@ -597,6 +606,11 @@ export default function ReimbursementForm() {
 			user?.company_name?.trim(),
 	);
 
+	const hasPendingTypeFill = useMemo(
+		() => fileSlotSummaries.some((s) => needsTypeFieldFill(s)),
+		[fileSlotSummaries],
+	);
+
 	const hasMatchedLineItemsToSubmit = useMemo(() => {
 		if (lineItemMeta.length === 0 || selectedFields.length === 0) return false;
 		for (const summary of fileSlotSummaries) {
@@ -604,6 +618,14 @@ export default function ReimbursementForm() {
 		}
 		return false;
 	}, [lineItemMeta, fileSlotSummaries, selectedFields.length, types]);
+
+	const canSmartSubmit = hasPendingTypeFill || hasMatchedLineItemsToSubmit;
+
+	const smartSubmitButtonLabel = hasPendingTypeFill
+		? '提交报销'
+		: fileSlotSummaries.some((s) => s.typeFillApplied)
+			? '确认提交'
+			: '提交报销';
 
 	const invoiceDuplicateAnalysis = useMemo(
 		() => analyzeInvoiceDuplicateIssues(fileSlotSummaries),
@@ -615,10 +637,13 @@ export default function ReimbursementForm() {
 		if (departmentLoading) return '部门列表加载中，请稍候';
 		if (fileList.length === 0) return '请先上传票据文件';
 		if (extracting) return '正在识别票据，请稍候';
-		if (selectedFields.length === 0 || lineItemMeta.length === 0) {
+		if (
+			!hasPendingTypeFill &&
+			(selectedFields.length === 0 || lineItemMeta.length === 0)
+		) {
 			return '请先点击「开始识别」并完成字段提取';
 		}
-		if (!hasMatchedLineItemsToSubmit) {
+		if (!canSmartSubmit) {
 			return extractIsSuggested
 				? '请为未匹配的发票手动选择报销类型，或在后台创建对应类型'
 				: '未识别到报销类型，请手动选择后再提交';
@@ -634,7 +659,8 @@ export default function ReimbursementForm() {
 		extracting,
 		selectedFields.length,
 		lineItemMeta.length,
-		hasMatchedLineItemsToSubmit,
+		hasPendingTypeFill,
+		canSmartSubmit,
 		extractIsSuggested,
 		invoiceDuplicateAnalysis.issues.length,
 	]);
@@ -651,10 +677,35 @@ export default function ReimbursementForm() {
 	}, []);
 
 	const applyExtractGroups = useCallback(
-		(groups: AiReimbursementFormExtractRow[][], options?: { silent?: boolean }) => {
+		(
+			groups: AiReimbursementFormExtractRow[][],
+			options?: {
+				silent?: boolean;
+				preserveSummaries?: FileSlotRecognitionSummary[];
+				markTypeFillAppliedIndexes?: number[];
+			},
+		) => {
 			extractGroupsRef.current = groups;
 			const fileNames = fileListRef.current.map((f) => f.name);
-			const summaries = buildFileSlotSummaries(groups, typesRef.current, fileNames);
+			let summaries = buildFileSlotSummaries(groups, typesRef.current, fileNames);
+			if (options?.preserveSummaries?.length) {
+				const preserveMap = new Map(
+					options.preserveSummaries.map((s) => [s.fileIndex, s]),
+				);
+				const filledSet = new Set(options.markTypeFillAppliedIndexes ?? []);
+				summaries = summaries.map((s) => {
+					const prev = preserveMap.get(s.fileIndex);
+					if (!prev) return s;
+					return {
+						...s,
+						userSelectedCategoryId: prev.userSelectedCategoryId,
+						ocrText: s.ocrText || prev.ocrText,
+						typeFillApplied: filledSet.has(s.fileIndex)
+							? true
+							: prev.typeFillApplied,
+					};
+				});
+			}
 			setFileSlotSummaries(summaries);
 
 			if (!options?.silent) {
@@ -782,6 +833,58 @@ export default function ReimbursementForm() {
 			setManualItemsMeta(metas);
 		},
 		[smartForm, manualForm],
+	);
+
+	const runPendingTypeFieldFills = useCallback(
+		async (pending: FileSlotRecognitionSummary[]) => {
+			const groups = extractGroupsRef.current.map((g) =>
+				Array.isArray(g) ? [...g] : [],
+			);
+			while (groups.length < fileListRef.current.length) {
+				groups.push([]);
+			}
+			await Promise.all(
+				pending.map(async (summary) => {
+					const typeId = summary.userSelectedCategoryId;
+					if (!typeId) return;
+					const typeDoc = typesRef.current.find((t) => t._id === typeId);
+					if (!typeDoc) {
+						throw new Error(`未找到报销类型：${typeId}`);
+					}
+					const groupIndex = summary.fileIndex - 1;
+					const group = groups[groupIndex] ?? [];
+					const ocrText = pickOcrTextFromGroup(group, summary.ocrText);
+					const head =
+						group.find((r) => (r.fields?.length ?? 0) > 0) ?? group[0];
+					const knownAmount = extractAmountFromRow(head);
+					const filled = await fillTypeFields({
+						typeJson: JSON.stringify({
+							label: typeDoc.label,
+							name: typeDoc.name,
+							code: typeDoc.code,
+							fields: typeDoc.fields,
+						}),
+						ocrText,
+						...(knownAmount > 0 ? { knownAmount } : {}),
+					});
+					const mergedFields = mergeFilledFieldsWithTypeSkeleton(
+						typeDoc,
+						filled.fields,
+					);
+					groups[groupIndex] = applyTypeFillToGroup(
+						group,
+						{ ...filled, fields: mergedFields, label: typeDoc.label },
+						typeDoc.label,
+					);
+				}),
+			);
+			applyExtractGroups(groups, {
+				silent: true,
+				preserveSummaries: fileSlotSummaries,
+				markTypeFillAppliedIndexes: pending.map((p) => p.fileIndex),
+			});
+		},
+		[applyExtractGroups, fileSlotSummaries],
 	);
 
 	const applyExtractResult = useCallback(
@@ -1208,6 +1311,28 @@ export default function ReimbursementForm() {
 		}
 		const invoiceError = await assertInvoiceNumbersSubmittable(fileSlotSummaries);
 		if (invoiceError) return;
+
+		const pendingFills = fileSlotSummaries.filter((s) => needsTypeFieldFill(s));
+		if (pendingFills.length > 0) {
+			setSubmitting(true);
+			message.loading({
+				content: '正在按所选类型填写字段…',
+				key: 'type-fill',
+				duration: 0,
+			});
+			try {
+				await runPendingTypeFieldFills(pendingFills);
+				message.destroy('type-fill');
+				message.info('已按所选类型重新填写字段，请核对后再次点击「确认提交」');
+			} catch (err) {
+				message.destroy('type-fill');
+				message.error(err instanceof Error ? err.message : '二次填单失败，请稍后重试');
+			} finally {
+				setSubmitting(false);
+			}
+			return;
+		}
+
 		setSubmitting(true);
 		try {
 			const uploadedIds: string[] = [];
@@ -1240,7 +1365,7 @@ export default function ReimbursementForm() {
 				: dayjs().format('YYYY-MM-DD');
 
 			const matchedRows = collectMatchedSubmissionRows(
-				values.lineItems,
+				values.lineItems ?? smartForm.getFieldValue('lineItems'),
 				selectedFields,
 				lineItemMeta,
 				fileSlotSummaries,
@@ -1712,10 +1837,40 @@ export default function ReimbursementForm() {
 											message.warning(smartSubmitBlockReason);
 											return;
 										}
+										const pendingFills = fileSlotSummaries.filter((s) =>
+											needsTypeFieldFill(s),
+										);
+										if (pendingFills.length > 0) {
+											void (async () => {
+												setSubmitting(true);
+												message.loading({
+													content: '正在按所选类型填写字段…',
+													key: 'type-fill',
+													duration: 0,
+												});
+												try {
+													await runPendingTypeFieldFills(pendingFills);
+													message.destroy('type-fill');
+													message.info(
+														'已按所选类型重新填写字段，请核对后再次点击「确认提交」',
+													);
+												} catch (err) {
+													message.destroy('type-fill');
+													message.error(
+														err instanceof Error
+															? err.message
+															: '二次填单失败，请稍后重试',
+													);
+												} finally {
+													setSubmitting(false);
+												}
+											})();
+											return;
+										}
 										smartForm.submit();
 									}}
 								>
-									提交报销
+									{smartSubmitButtonLabel}
 								</Button>
 								{smartSubmitBlockReason ? (
 									<p className="text-xs text-amber-600 mt-2 mb-0">{smartSubmitBlockReason}</p>

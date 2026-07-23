@@ -26,12 +26,26 @@ export interface AiReimbursementFormExtractRow {
 	invoice_duplicate?: boolean;
 	/** 与本批其他文件发票号码重复（非历史已上传） */
 	invoice_batch_duplicate?: boolean;
+	/** 原票 OCR，供手动选类型后二次填单 */
+	ocr_text?: string;
 }
 
 export type AiReimbursementFormExtractPayload =
 	| AiReimbursementFormExtractRow[][]
 	| AiReimbursementFormExtractRow[]
 	| AiReimbursementFormExtractRow;
+
+export interface FillTypeFieldsRequest {
+	typeJson: string;
+	ocrText: string;
+	knownAmount?: number;
+}
+
+export interface FillTypeFieldsResult {
+	label?: string;
+	fields?: AiReimbursementFormField[];
+	is_suggested_type?: boolean;
+}
 
 export interface ChatRequest {
 	message: string;
@@ -108,4 +122,31 @@ export async function* chatStreamFetch(data: ChatRequest): AsyncGenerator<Stream
 			}
 		}
 	}
+}
+
+/** 手动选类型后的二次填单（soft-fill）；超时放宽以等待模型 */
+export async function fillTypeFields(
+	params: FillTypeFieldsRequest,
+): Promise<FillTypeFieldsResult> {
+	const response = await fetch('/api/ai/fill-type-fields', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${getToken()}`,
+		},
+		body: JSON.stringify(params),
+		signal: AbortSignal.timeout(120_000),
+	});
+	if (!response.ok) {
+		throw new Error('二次填单失败');
+	}
+	const body = (await response.json()) as {
+		code?: number;
+		message?: string;
+		data?: FillTypeFieldsResult;
+	};
+	if (body.code !== undefined && body.code !== 0 && body.code !== 200) {
+		throw new Error(body.message ?? '二次填单失败');
+	}
+	return body.data ?? (body as FillTypeFieldsResult);
 }
