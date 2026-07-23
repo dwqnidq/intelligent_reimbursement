@@ -45,3 +45,7 @@ docs/
 
 # Brainstorm 临时文件
 .superpowers/
+
+# MongoDB 备份（bson / metadata.json 等，禁止入库）
+mongodb-backup/
+*.bson
