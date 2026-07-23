@@ -135,7 +135,7 @@ export async function fillTypeFields(
 			Authorization: `Bearer ${getToken()}`,
 		},
 		body: JSON.stringify(params),
-		signal: AbortSignal.timeout(120_000),
+		signal: AbortSignal.timeout(180_000),
 	});
 	if (!response.ok) {
 		throw new Error('二次填单失败');

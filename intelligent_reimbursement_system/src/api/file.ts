@@ -1,4 +1,4 @@
-import http from './http'
+import http, { LONG_REQUEST_TIMEOUT_MS } from './http'
 
 export interface UploadFileResponse {
   id: string
@@ -14,5 +14,6 @@ export const uploadFile = (file: File, type: string = 'attachment') => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    timeout: LONG_REQUEST_TIMEOUT_MS,
   })
 }

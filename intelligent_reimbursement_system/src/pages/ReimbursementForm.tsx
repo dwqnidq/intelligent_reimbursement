@@ -1127,8 +1127,13 @@ export default function ReimbursementForm() {
 			if (!got) {
 				message.error('未能获取智能填单结果，请重试或更换文件');
 			}
-		} catch {
-			console.log('智能识别服务异常');
+		} catch (err) {
+			const tip =
+				err instanceof Error && err.message
+					? err.message
+					: '智能识别服务异常，请稍后重试';
+			message.error(tip);
+			console.error('智能识别服务异常', err);
 		} finally {
 			setExtracting(false);
 			setExtractCompletedIndexes(new Set());

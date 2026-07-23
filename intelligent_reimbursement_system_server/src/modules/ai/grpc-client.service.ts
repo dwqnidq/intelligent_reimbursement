@@ -96,8 +96,11 @@ export class GrpcClientService implements OnModuleInit {
   async executeGraph(request: GraphRequest): Promise<GraphResponse> {
     this.ensureClient();
     return new Promise((resolve, reject) => {
+      // 二次填单/同步提取可能较慢，避免客户端过早断连
+      const deadline = new Date(Date.now() + 180_000);
       this.client.ExecuteGraph(
         request,
+        { deadline },
         (error: any, response: GraphResponse) => {
           if (error) {
             this.logger.error('gRPC调用失败', error);

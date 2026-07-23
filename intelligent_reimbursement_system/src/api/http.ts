@@ -27,10 +27,14 @@ interface RefreshSessionPayload {
 
 const axiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 10000,
+  /** 默认 60s：识别/上传等长请求勿用过短超时；超长接口可在调用处覆盖 */
+  timeout: 60_000,
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
+
+/** 文件上传、导出等大体积/长耗时接口 */
+export const LONG_REQUEST_TIMEOUT_MS = 120_000;
 
 let refreshingPromise: Promise<RefreshSessionPayload> | null = null;
 
@@ -70,7 +74,7 @@ async function doRefreshToken() {
     {
       baseURL: import.meta.env.VITE_API_BASE_URL,
       withCredentials: true,
-      timeout: 10000,
+      timeout: 60_000,
       headers: { "Content-Type": "application/json" },
     },
   );

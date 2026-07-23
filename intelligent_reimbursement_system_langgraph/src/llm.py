@@ -13,6 +13,7 @@ llm = ChatOpenAI(
     temperature=0.7,
     max_tokens=8000,
     streaming=True,
+    request_timeout=180,
     extra_body=_ARK_EXTRA_BODY,
 )
 
@@ -22,5 +23,6 @@ llm_vision = ChatOpenAI(
     openai_api_base=os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
     temperature=0,
     max_tokens=10000,
+    request_timeout=180,
     extra_body=_ARK_EXTRA_BODY,
 )
