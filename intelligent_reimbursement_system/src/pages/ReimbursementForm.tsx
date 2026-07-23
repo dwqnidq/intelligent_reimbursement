@@ -1620,29 +1620,10 @@ export default function ReimbursementForm() {
 																	const title = meta
 																		? `明细 ${meta.indexInFile}`
 																		: `明细 ${idx + 1}`;
-																	const detailFile =
-																		meta != null ? fileList[meta.fileIndex - 1] : slotFile;
-																	const detailBlobUrl = detailFile
-																		? (smartFileBlobUrlRef.current.get(detailFile.uid) ?? null)
-																		: null;
 																	return (
 																		<div key={key} className="rf-detail-block">
 																			<div className="rf-detail-hd">
 																				<h4>{title}</h4>
-																				{detailBlobUrl ? (
-																					<button
-																						type="button"
-																						className="rf-text-link"
-																						onClick={() =>
-																							openPreview(
-																								detailBlobUrl,
-																								resolveUploadFileMime(detailFile),
-																							)
-																						}
-																					>
-																						预览票据
-																					</button>
-																				) : null}
 																			</div>
 																			<div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
 																				{(fileSlotFields.get(s.fileIndex) ?? selectedFields).map((field, fIdx) => (
